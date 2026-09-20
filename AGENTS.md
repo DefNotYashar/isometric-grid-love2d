@@ -49,7 +49,7 @@ size (viewport is re-polled every frame — tiling WMs resize without events).
 - **Rendering (painter's order):** `love.draw` iterates diagonal bands `s = gx+gy` from 2 to 20, drawing blocks then any pawn whose tile-sum equals `s`. This keeps nearer blocks/pawns overlapping farther ones correctly.
 - **Blocks (`drawBlock`):** top diamond + two extruded side faces (north = mid tone, west = darkest; light comes from screen-right). Per-tile hover lift is tweened in the `lift["x,y"]` table toward `LIFT_PX` (10 px).
 - **Pawns (`drawPawn`):** flat two-tone silhouette — ground shadow ellipse, base, trapezoid body (`color` + `dark`), collar, head, one matte highlight dot. Active pawn gets a pulsing ring. Add new units by appending to the `units` table: `{ id, name, gx, gy, px, py, color={r,g,b}, dark={r,g,b}, range=n, path={}, t=0 }`.
-- **Camera:** `camX/camY` offset + `zoom`, applied inside `tileToScreen`. `originX/originY` recenter from `syncViewport()`.
+- **Camera:** `camX/camY` offset + `zoom`, applied inside `tileToScreen`. `originX/originY` recenter from `syncViewport()`. Wheel sets `zoomTarget` (smooth-lerped in `love.update`); anchor is the cursor when over the board, viewport center otherwise. `clampCamera()` runs every frame and after pan/zoom events, guaranteeing the board bbox (world x ±340, y −40…380) overlaps the viewport by ≥150 px — the grid can never be lost. `R` resets.
 
 ## Palette (`C` table)
 
