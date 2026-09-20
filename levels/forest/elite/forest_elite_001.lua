@@ -40,10 +40,10 @@ return {
     enemy_spawns = {
         { x = 8, y = 2 },
         { x = 9, y = 2 },
-        { x = 8, y = 3 },
         { x = 9, y = 3 },
-        { x = 7, y = 2 },
-        { x = 7, y = 3 },
+        { x = 10, y = 2 },
+        { x = 10, y = 3 },
+        { x = 6, y = 2 },
     },
 
     tags = { "forest", "elite", "mountain", "water", "tall", "chokepoint" },
