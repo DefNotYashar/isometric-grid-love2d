@@ -5,6 +5,7 @@ local Board = require("board")
 local Units = require("units")
 local Render = require("render")
 local M = {}
+local Knight = require("assets.units.knight")
 
 function M.items()
     if G.menuScreen == "main" then return { "START", "SETTINGS", "EXIT" }
@@ -15,7 +16,20 @@ function M.items()
         for _, def in ipairs(G.roster) do items[#items + 1] = def.name:upper() end
         items[#items + 1] = "BACK"
         return items
-    else return { "VOLUME: ON", "BACK" } end
+    else return { M.volumeLabel(), "BACK" } end
+end
+
+-- settings: music volume 0..10, shown as a text bar (ASCII-safe).
+function M.volumeLabel()
+    local v = math.max(0, math.min(10, G.volume or 8))
+    return "VOLUME: [" .. string.rep("#", v) .. string.rep("-", 10 - v)
+        .. "] " .. (v * 10) .. "%"
+end
+
+function M.adjustVolume(d, wrap)
+    local v = math.max(0, math.min(10, G.volume or 8)) + d
+    if wrap then v = v % 11 end
+    G.volume = math.max(0, math.min(10, v))
 end
 
 function M.draw(time)
@@ -143,20 +157,29 @@ function M.drawSelect(time)
         if prev then items[#items + 1] = { def = prev, off = -M.selDir * e * 320, a = 1 - k } end
         items[#items + 1] = { def = def, off = M.selDir * (1 - e) * 320, a = math.min(1, 0.3 + k) }
     end
+    -- universal scale for select screen
+    local SEL_SCALE = 3.2
+
     local my = G.H * 0.40
     for _, it in ipairs(items) do
         local px = cx + it.off
         -- medallion: team-glow outer ring, dark sticker ring, deep fill
+        local R = 85 * SEL_SCALE / 2.4
         love.graphics.setColor(withAlpha(it.def.color, 0.45 * it.a))
         love.graphics.setLineWidth(6)
-        love.graphics.circle("line", px, my, 73)
+        love.graphics.circle("line", px, my, R + 3)
         love.graphics.setColor(withAlpha(C.ring, it.a))
         love.graphics.setLineWidth(4)
-        love.graphics.circle("line", px, my, 70)
+        love.graphics.circle("line", px, my, R)
         love.graphics.setColor(withAlpha(C.barBg, it.a))
-        love.graphics.circle("fill", px, my, 67)
+        love.graphics.circle("fill", px, my, R - 3)
         love.graphics.setLineWidth(1)
-        drawBust(it.def, px, my + 42, 2.4, it.a)
+        if it.def.kind == "knight" then
+            Knight.drawBust(px, my + 50 * SEL_SCALE / 2.4, it.def.color, it.def.dark, SEL_SCALE)
+            love.graphics.setColor(1, 1, 1, it.a)
+        else
+            drawBust(it.def, px, my + 50 * SEL_SCALE / 2.4, SEL_SCALE, it.a)
+        end
     end
     -- arrows
     local mx, myy = love.mouse.getPosition()
@@ -251,8 +274,8 @@ function M.startRun(idx, size)
     size = size or 10
     Board.generateMap(1, size)
     -- fixed zoomed-in framing: big boards pull back, standard sits close
-    if (G.GRID or 10) >= 15 then G.zoom, G.zoomTarget = 1.3, 1.3
-    else G.zoom, G.zoomTarget = 1.8, 1.8 end
+    if (G.GRID or 10) >= 15 then G.zoom, G.zoomTarget = 1.5, 1.5
+    else G.zoom, G.zoomTarget = 2.1, 2.1 end
     G.camX, G.camY = 0, 0
     G.units = { Units.spawnUnit(G.roster[idx]) }
     G.units[1].gx, G.units[1].gy = G.spawnTile[1], G.spawnTile[2]
@@ -272,8 +295,8 @@ end
 function M.nextLevel()
     Board.generateMap(G.runLevel + 1, G.GRID)
     -- fresh framing for the new grid (transition zoomed in close)
-    if (G.GRID or 10) >= 15 then G.zoom, G.zoomTarget = 1.3, 1.3
-    else G.zoom, G.zoomTarget = 1.8, 1.8 end
+    if (G.GRID or 10) >= 15 then G.zoom, G.zoomTarget = 1.5, 1.5
+    else G.zoom, G.zoomTarget = 2.1, 2.1 end
     G.camX, G.camY = 0, 0
     G.win = nil
     G.winNextBtn, G.upgDescendBtn, G.upgSlotBtns = nil, nil, nil
@@ -284,7 +307,7 @@ function M.nextLevel()
     u.gx, u.gy = G.spawnTile[1], G.spawnTile[2]
     u.px, u.py, u.fx, u.fy = u.gx, u.gy, u.gx, u.gy
     u.path, u.t = {}, 0
-    u.moved, u.acted = false, false
+    u.moved, u.attacked, u.acted = false, false, false
     u.hp, u.mana = u.maxHP, u.maxMana -- descend fully restores the party
     G.round = 1
     G.levelKills, G.levelCoins, G.levelHp = 0, 0, 0
@@ -329,7 +352,7 @@ function M.updateWin(dt)
     w.t = w.t + dt
     -- camera: slow cinematic push onto the hero with a gentle orbital
     -- drift so the frame feels alive while it closes in.
-    local base = (G.GRID >= 15) and 1.3 or 1.8
+    local base = (G.GRID >= 15) and 1.5 or 2.1
     local goal = math.min(G.MAX_ZOOM, base + 0.85)
     local k = math.min(1, w.t / w.dur)
     local e -- easeInOutCubic: slow ends, flowing middle
@@ -371,7 +394,7 @@ function M.applyMode(m)
     if m == "run" then return end
     G.gameMode = m
     Board.setSize(10)
-    G.zoom, G.zoomTarget = 1.8, 1.8
+    G.zoom, G.zoomTarget = 2.1, 2.1
     G.camX, G.camY = 0, 0
     Board.clearBoard()
     for _, p in ipairs(G.pillars) do
@@ -397,6 +420,10 @@ function M.activate()
     elseif G.menuScreen == "select" then
         if G.menuIdx <= #G.roster then M.startRun(G.menuIdx)
         else G.menuScreen, G.menuIdx = "modes", 1 end
+    elseif G.menuScreen == "settings" then
+        -- click the volume row to step up (wraps to mute); BACK leaves.
+        if G.menuIdx == 1 then M.adjustVolume(1, true)
+        else G.menuScreen, G.menuIdx = "main", 1 end
     else
         G.menuScreen, G.menuIdx = "main", 1
     end
@@ -413,6 +440,19 @@ function M.keypressed(key)
         return true
     end
     local n = #M.items()
+    if G.menuScreen == "settings" then
+        -- up/down move, left/right (or A/D) tune the volume row,
+        -- ENTER steps it up, ESC leaves.
+        if key == "up" or key == "w" then G.menuIdx = ((G.menuIdx - 2) % n) + 1
+        elseif key == "down" or key == "s" then G.menuIdx = (G.menuIdx % n) + 1
+        elseif key == "left" or key == "a" then
+            if G.menuIdx == 1 then M.adjustVolume(-1) end
+        elseif key == "right" or key == "d" then
+            if G.menuIdx == 1 then M.adjustVolume(1) end
+        elseif key == "return" or key == "space" then M.activate()
+        elseif key == "escape" then G.menuScreen, G.menuIdx = "main", 1 end
+        return true
+    end
     if key == "up" or key == "w" then G.menuIdx = ((G.menuIdx - 2) % n) + 1
     elseif key == "down" or key == "s" then G.menuIdx = (G.menuIdx % n) + 1
     elseif key == "return" or key == "space" then M.activate()
