@@ -61,6 +61,10 @@ function M.mousepressed(x, y, button)
         end
         return
     end
+    if G.phase == "shop" then
+        if button == 1 then Menu.shopMousepressed(x, y, button) end
+        return
+    end
     if G.state == "over" then
         -- game over: any click returns to the menu.
         G.state, G.menuScreen, G.menuIdx = "menu", "main", 1
@@ -160,6 +164,7 @@ end
 
 function M.keypressed(key)
     if G.state == "menu" then return Menu.keypressed(key) end
+    if G.phase == "shop" then return Menu.shopKeypressed(key) end
     if G.state == "over" then
         G.state, G.menuScreen, G.menuIdx = "menu", "main", 1
         return

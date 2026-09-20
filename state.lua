@@ -17,7 +17,7 @@ local G = {
     -- viewport / camera
     W = 1280, H = 800,
     originX = 0, originY = 0,
-    camX = 0, camY = 0, zoom = 1.8, zoomTarget = 1.8,
+    camX = 0, camY = 0, zoom = 2.1, zoomTarget = 2.1,
 
     -- board
     heights = {}, blocked = {}, terrain = {},
@@ -41,10 +41,14 @@ local G = {
     win = nil, -- win transition {t, dur, level, kills, coins, hp} or nil
     castMode = false, -- firebolt targeting armed
     showStats = true, -- portrait stat block expanded
+    volume = 8, -- music volume 0..10 (settings screen)
     statsToggle = nil, -- clickable STATS arrow rect, set by render
     floats = {}, -- floating combat text {gx,gy,txt,col,t,life}
     arrows = {}, -- arrows in flight {fx,fy,tx,ty,t,dur} (grid coords)
     nextBtn = nil, boltBtn = nil, -- turn-box button rects, set by render
+
+    -- shop phase
+    shop = { keeper = nil, items = {}, selected = 1, leaveBtn = nil, buyBtns = {} },
 
     -- per-frame / fx state
     hover = nil, lift = {}, log = {},
@@ -57,6 +61,7 @@ local G = {
     menuScreen = "main",  -- "main" | "modes" | "select" | "settings"
     menuIdx = 1,
     gameMode = "free",    -- "run" | "free"
+    phase = "play",       -- "play" | "shop" | "win" | "upgrade"
 
     -- fonts (set in love.load)
     fontTitle = nil, fontHead = nil, fontBody = nil, fontSmall = nil,

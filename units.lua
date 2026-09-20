@@ -10,21 +10,24 @@ local M = {}
 -- stats: vigor (maxHP = vigor*4), strength, dexterity, luck,
 --   speed (tiles per move = range; turn order, fastest first),
 --   charisma (maxMana = mana start = charisma*3).
--- STR/DEX/LUCK are stored + displayed only (no combat yet).
+-- Pawn colors are cosmetic; every pawn starts with the same stat block.
+local PAWN_STATS = { vigor = 3, strength = 3, dexterity = 3, luck = 3,
+                     speed = 3, charisma = 3 }
+
 function M.defaultRoster()
     return {
         { id = "p1", name = "Alpha", gx = 3, gy = 3,
           color = {0.90, 0.34, 0.18}, dark = {0.62, 0.20, 0.10},
-          stats = { vigor = 4, strength = 4, dexterity = 2, luck = 2, speed = 3, charisma = 2 } },
+          kind = "knight", stats = PAWN_STATS },
         { id = "p2", name = "Bravo", gx = 8, gy = 8,
           color = {0.18, 0.53, 0.89}, dark = {0.10, 0.35, 0.64},
-          stats = { vigor = 2, strength = 2, dexterity = 4, luck = 3, speed = 5, charisma = 2 } },
+          kind = "knight", stats = PAWN_STATS },
         { id = "p3", name = "Charlie", gx = 3, gy = 8,
           color = {0.25, 0.72, 0.30}, dark = {0.14, 0.48, 0.18},
-          stats = { vigor = 3, strength = 2, dexterity = 3, luck = 5, speed = 3, charisma = 3 } },
+          kind = "knight", stats = PAWN_STATS },
         { id = "p4", name = "Delta", gx = 8, gy = 3,
           color = {0.78, 0.62, 0.18}, dark = {0.52, 0.40, 0.10},
-          stats = { vigor = 3, strength = 3, dexterity = 2, luck = 2, speed = 2, charisma = 5 } },
+          kind = "knight", stats = PAWN_STATS },
     }
 end
 
@@ -65,7 +68,7 @@ function M.spawnUnit(def)
         rangedDmg = def.rangedDmg, shotRange = def.shotRange,
         stats = stats, maxHP = maxHP, hp = maxHP,
         maxMana = maxMana, mana = maxMana,
-        moved = false, acted = false,
+        moved = false, attacked = false, acted = false,
         path = {}, t = 0 }
 end
 
@@ -224,8 +227,8 @@ function M.syncTurnPos()
     end
 end
 
--- After a unit consumes its turn, pass selection to the next unacted
--- unit in initiative order on the visible map. When everyone has acted,
+-- After a unit consumes its turn, pass selection to the next unended
+-- unit in initiative order on the visible map. When everyone has ended,
 -- a new round starts. Selecting an enemy runs its AI immediately.
 function M.advanceTurn(finished)
     G.castMode = false
@@ -251,7 +254,7 @@ function M.newRound()
     G.round = (G.round or 1) + 1
     G.castMode = false
     G.ai = nil
-    for _, u in ipairs(G.units) do u.moved, u.acted = false, false end
+    for _, u in ipairs(G.units) do u.moved, u.attacked, u.acted = false, false, false end
     G.pushLog("— ROUND " .. G.round .. " —")
     for i, id in ipairs(G.turnOrder) do
         local idx = M.indexOfId(id)
@@ -269,7 +272,7 @@ end
 function M.endTurn()
     local a = M.active()
     if not a or #a.path > 0 then return end
-    if a.team == "enemy" then M.advanceTurn(a) return end
+    if a.team == "enemy" then a.acted = true M.advanceTurn(a) return end
     a.acted = true
     G.pushLog(a.name .. " ends turn")
     M.advanceTurn(a)
@@ -297,7 +300,7 @@ end
 -- updateAI so each beat reads: think pause -> glide -> strike pause.
 -- Selection + log happen up front (in advanceTurn), the hit lands later.
 function M.enemyTurn(e)
-    if e.acted or #e.path > 0 then return end
+    if e.acted or e.attacked or #e.path > 0 then return end
     if not M.heroesAlive() then
         if not G.wiped then
             G.wiped = true
@@ -321,7 +324,7 @@ function M.updateAI(dt)
     if not ai then return end
     local idx = M.indexOfId(ai.id)
     local u = idx and G.units[idx]
-    if not u or u.hp <= 0 or u.acted or u.map ~= G.map or u.team ~= "enemy" then
+    if not u or u.hp <= 0 or u.acted or u.attacked or u.map ~= G.map or u.team ~= "enemy" then
         G.ai = nil
         M.advanceTurn() -- queued unit gone: carry on without skipping anyone
         return
@@ -473,7 +476,7 @@ end
 -- ---------- orders ----------
 function M.orderMove(unit, tx, ty)
     if #unit.path > 0 then G.pushLog(unit.name .. ": still moving...") return end
-    if unit.acted then G.pushLog(unit.name .. ": already acted — end turn") return end
+    if unit.acted then G.pushLog(unit.name .. ": turn ended — start a new round") return end
     if unit.moved then G.pushLog(unit.name .. ": already moved — attack or end turn") return end
     local path = M.findPath(unit, tx, ty)
     if not path then G.pushLog(unit.name .. ": no path to " .. tx .. "," .. ty) return end
@@ -501,7 +504,8 @@ end
 
 -- ---------- actions ----------
 -- Default attack: melee, orthogonal adjacency only.
--- Damage = attacker's Strength (min 1). Consumes the turn.
+-- Damage = attacker's Strength (min 1). Uses the attack action;
+-- movement remains available until END TURN.
 -- Tall grass + DEX feed dodge; LUCK feeds crits (x1.5).
 local BOLT_COST, BOLT_RANGE = 3, 3
 M.BOLT_COST, M.BOLT_RANGE = BOLT_COST, BOLT_RANGE
@@ -549,20 +553,25 @@ end
 -- Heroes keep selection after acting so the player ends the turn with
 -- END TURN / Space; enemies auto-pass to keep their beat moving.
 local function afterAction(att)
-    if att.team == "enemy" then M.advanceTurn(att)
-    else G.pushLog(att.name .. ": press END TURN") end
+    if att.team == "enemy" then
+        att.acted = true
+        M.advanceTurn(att)
+    else
+        G.pushLog(att.name .. ": press END TURN")
+    end
 end
 
 function M.orderAttack(att, target)
     if not att then return end
     if #att.path > 0 then G.pushLog(att.name .. ": still moving...") return end
     if att.acted then G.pushLog(att.name .. ": already acted") return end
+    if att.attacked then G.pushLog(att.name .. ": already attacked — 1 attack per turn") return end
     if not target or target.hp <= 0 or target.map ~= att.map then return end
     if target.team == att.team then G.pushLog(att.name .. ": allies only, pick an enemy") return end
     local dist = math.abs(att.gx - target.gx) + math.abs(att.gy - target.gy)
     if dist ~= 1 then G.pushLog(att.name .. ": too far — step adjacent") return end
     local dmg, crit = M.critRoll(att, M.attackDamage(att))
-    att.acted = true
+    att.attacked = true
     if M.tryDodge(target) then
         M.addFloat(target.gx, target.gy, "DODGED", G.C.floatDodge)
         G.pushLog(att.name .. " swings at " .. target.name .. " — dodged!")
@@ -599,7 +608,8 @@ function M.rewardKill(killer)
     G.pushLog(killer.name .. " grows tougher (+1 maxHP, +2 HP, +" .. bounty .. "c)")
 end
 
--- Firebolt: ranged spell, CHA-based, costs mana. Ends the turn like attack.
+-- Firebolt: ranged spell, CHA-based, costs mana. Uses the attack action;
+-- movement remains available until END TURN.
 function M.orderCast(att, target)
     if not att or att.team ~= "hero" then return end
     if #att.path > 0 then G.pushLog(att.name .. ": still moving...") return end
@@ -610,9 +620,10 @@ function M.orderCast(att, target)
     local dist = math.abs(att.gx - target.gx) + math.abs(att.gy - target.gy)
     if dist > BOLT_RANGE then G.pushLog(att.name .. ": bolt range is " .. BOLT_RANGE) return end
     att.mana = att.mana - BOLT_COST
+    G.castMode = false
     M.addFloat(att.gx, att.gy, "-" .. BOLT_COST .. " mana", G.C.floatMana)
     local dmg, crit = M.critRoll(att, 2 + ((att.stats and att.stats.charisma) or 0))
-    att.acted = true
+    -- abilities are free: do not consume the 1/turn basic attack
     if M.tryDodge(target) then
         M.addFloat(target.gx, target.gy, "DODGED", G.C.floatDodge)
         G.pushLog(att.name .. "'s bolt misses " .. target.name .. "!")
@@ -647,9 +658,9 @@ function M.orderRanged(att, target)
     local dist = math.abs(att.gx - target.gx) + math.abs(att.gy - target.gy)
     if dist < 1 or dist > rng then G.pushLog(att.name .. ": no shot (" .. dist .. " > " .. rng .. ")") return end
     local dmg, crit = M.critRoll(att, att.rangedDmg or M.ARCHER_DMG)
-    att.acted = true
-    G.arrows[#G.arrows + 1] = { fx = att.px, fy = att.py,
-        tx = target.px, ty = target.py, t = 0, dur = 0.28 }
+    att.attacked = true
+    G.arrows[#G.arrows + 1] = { fx = att.px or att.gx, fy = att.py or att.gy,
+        tx = target.px or target.gx, ty = target.py or target.gy, t = 0, dur = 0.28 }
     if M.tryDodge(target) then
         M.addFloat(target.gx, target.gy, "DODGED", G.C.floatDodge)
         G.pushLog(att.name .. " looses at " .. target.name .. " — dodged!")
@@ -674,9 +685,14 @@ end
 -- per-frame reach cache + hover path preview (drives range wash + dots)
 function M.updateQueries()
     local actU = M.active()
-    if actU and actU.map == G.map and #actU.path == 0 then G.cachedReach = M.reachable(actU) else G.cachedReach = {} end
+    if actU and actU.map == G.map and not actU.moved and not actU.acted and #actU.path == 0 then
+        G.cachedReach = M.reachable(actU)
+    else
+        G.cachedReach = {}
+    end
     G.hoverPath = {}
-    if G.hover and actU and actU.map == G.map and #actU.path == 0 and G.cachedReach[G.hover[2]*100+G.hover[1]] then
+    if G.hover and actU and actU.map == G.map and not actU.moved and not actU.acted
+        and #actU.path == 0 and G.cachedReach[G.hover[2]*100+G.hover[1]] then
         local p = M.findPath(actU, G.hover[1], G.hover[2])
         if p then for i = 2, #p do G.hoverPath[#G.hoverPath+1] = p[i] end end
     end
@@ -706,6 +722,12 @@ function M.updateGlide(dt, onStep)
                 G.squash[u.id] = 1
                 local pcx, pcy = Board.tileToScreen(u.gx, u.gy, 0)
                 G.puffs[#G.puffs+1] = { x = pcx, y = pcy, r = 4, a = 0.5 }
+                if G.playStep then -- footstep SFX for the landed tile
+                    G.playStep(u, G.terrain[u.gy] and G.terrain[u.gy][u.gx])
+                end
+                if G.playStep then -- footstep SFX for the landed tile
+                    G.playStep(u, G.terrain[u.gy] and G.terrain[u.gy][u.gx])
+                end
                 if #u.path == 0 then G.pushLog(u.name .. " -> " .. u.gx .. "," .. u.gy) end
                 if onStep then onStep(u) end
                 if #u.path == 0 then

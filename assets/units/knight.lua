@@ -18,20 +18,10 @@ function M.drawKnight(u, time, G, Board, C)
     local cx, cy = Board.tileToScreen(u.px, u.py, hgt * G.BLOCK_H + l + hop)
     local s = G.zoom
 
-    local shScale = 1 - math.min(0.35, (hop + l) * 0.02)
-    love.graphics.setColor(C.shadow)
-    love.graphics.ellipse("fill", cx, cy + 2*s, 13*s*shScale, 5.5*s*shScale)
-
     love.graphics.push()
     love.graphics.translate(cx, cy)
     love.graphics.scale(sx*s, sy*s)
     love.graphics.translate(-cx, -cy)
-
-    -- base disc (team)
-    love.graphics.setColor(u.dark)
-    love.graphics.ellipse("fill", cx, cy-2, 11, 5)
-    love.graphics.setColor(u.color)
-    love.graphics.ellipse("fill", cx, cy-4, 11, 5)
 
     -- legs: slightly tapered greaves
     love.graphics.setColor(STEEL_M)

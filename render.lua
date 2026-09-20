@@ -327,11 +327,13 @@ function M.drawBlock(gx, gy, time)
     end
 end
 
+local Knight = require("assets.units.knight")
 function M.drawPawn(u, time)
     if u.team == "enemy" then
         if u.kind == "archer" then return M.drawSkeleton(u, time) end
         return M.drawSlime(u, time)
     end
+    if u.kind == "knight" then return Knight.drawKnight(u, time, G, Board, G.C) end
     local C = G.C
     -- smooth grid position -> screen (stand on block top)
     local hgt = G.heights[u.gy] and G.heights[u.gy][u.gx] or 0
@@ -345,11 +347,6 @@ function M.drawPawn(u, time)
     local s = G.zoom
     local active = (G.units[G.activeIdx] == u)
 
-    -- ground shadow scales with hop/lift
-    local shScale = 1 - math.min(0.35, (hop + l) * 0.02)
-    love.graphics.setColor(C.shadow)
-    love.graphics.ellipse("fill", cx, cy + 2 * s, 15 * s * shScale, 6 * s * shScale)
-
     love.graphics.push()
     love.graphics.translate(cx, cy)
     love.graphics.scale(sx * s, sy * s)
@@ -358,11 +355,6 @@ function M.drawPawn(u, time)
     local bw, bh = 13, 22
     love.graphics.setColor(0, 0, 0, 0.25)
     love.graphics.polygon("fill", { cx-bw/2+2, cy-2, cx-4+2, cy-4-bh+3, cx+4+2, cy-4-bh+3, cx+bw/2+2, cy-2 })
-    -- base
-    love.graphics.setColor(u.dark)
-    love.graphics.ellipse("fill", cx, cy - 2, 13, 5.5)
-    love.graphics.setColor(u.color)
-    love.graphics.ellipse("fill", cx, cy - 4, 13, 5.5)
     -- body (two-tone flat)
     love.graphics.setColor(u.dark)
     love.graphics.polygon("fill", { cx - bw / 2, cy - 4, cx - 4, cy - 4 - bh,
@@ -419,20 +411,11 @@ function M.drawSkeleton(u, time)
     local s = G.zoom
     local active = (G.units[G.activeIdx] == u)
 
-    local shScale = 1 - math.min(0.35, (hop + l) * 0.02)
-    love.graphics.setColor(C.shadow)
-    love.graphics.ellipse("fill", cx, cy + 2 * s, 15 * s * shScale, 6 * s * shScale)
-
     love.graphics.push()
     love.graphics.translate(cx, cy)
     love.graphics.scale(sx * s, sy * s)
     love.graphics.translate(-cx, -cy)
     local bw, bh = 13, 22
-    -- base
-    love.graphics.setColor(u.dark)
-    love.graphics.ellipse("fill", cx, cy - 2, 13, 5.5)
-    love.graphics.setColor(u.color)
-    love.graphics.ellipse("fill", cx, cy - 4, 13, 5.5)
     -- ribcage body (two-tone flat)
     love.graphics.setColor(u.dark)
     love.graphics.polygon("fill", { cx - bw / 2, cy - 4, cx - 4, cy - 4 - bh,
@@ -501,17 +484,10 @@ function M.drawSlime(u, time)
     local s = G.zoom
     local active = (G.units[G.activeIdx] == u)
 
-    local shScale = 1 - math.min(0.35, (hop + l) * 0.02)
-    love.graphics.setColor(C.shadow)
-    love.graphics.ellipse("fill", cx, cy + 2 * s, 15 * s * shScale, 6 * s * shScale)
-
     love.graphics.push()
     love.graphics.translate(cx, cy)
     love.graphics.scale(sx * s, sy * s)
     love.graphics.translate(-cx, -cy)
-    -- base puddle
-    love.graphics.setColor(u.dark)
-    love.graphics.ellipse("fill", cx, cy - 2, 14, 5.5)
     -- dome body
     love.graphics.setColor(u.color)
     love.graphics.ellipse("fill", cx, cy - 9, 12, 10)
@@ -700,6 +676,8 @@ function M.drawPortrait()
         love.graphics.circle("fill", cx - 3, feet - 10, 1.7)
         love.graphics.circle("fill", cx + 3, feet - 10, 1.7)
         end
+    elseif a.kind == "knight" then
+        require("assets.units.knight").drawBust(cx, feet, a.color, a.dark)
     else
         love.graphics.setColor(C.shadow)
         love.graphics.ellipse("fill", cx, feet, 11, 4.5)
@@ -730,7 +708,9 @@ function M.drawPortrait()
     local status, scol
     if isFoe then status, scol = "enemy turn", C.floatDmg
     elseif a.acted then status, scol = "spent", C.muted
+    elseif a.moved and a.attacked then status, scol = "move + attack used", C.accent
     elseif a.moved then status, scol = "attack or pass", C.accent
+    elseif a.attacked then status, scol = "move or pass", C.accent
     else status, scol = "ready", C.accent end
     love.graphics.setColor(C.barBg)
     love.graphics.rectangle("fill", tx - 8, row + 52, 148, 20, 10, 10)
@@ -935,6 +915,7 @@ function M.drawTurnBox()
     local mx, my = love.mouse.getPosition()
     -- firebolt button (heroes only, grey when unaffordable/spent)
     local canBolt = a and a.team ~= "enemy" and not a.acted
+        and not a.attacked
         and (a.mana or 0) >= (Units.BOLT_COST or 3)
     local lb = { x = bx + 12, y = by + 46, w = bw - 24, h = 20 }
     G.boltBtn = lb
@@ -1050,6 +1031,8 @@ function M.drawTurnBar()
             love.graphics.setColor(col({1, 1, 1}, 0.6))
             love.graphics.circle("fill", cx - r * 0.3, y - r * 0.42, r * 0.14)
             end
+        elseif u.kind == "knight" then
+            require("assets.units.knight").drawChip(cx, y, r, u.color, u.dark, alpha)
         else
             -- pawn chip: dark rim, color face, highlight dot
             love.graphics.setColor(col(u.dark))
@@ -1094,7 +1077,10 @@ function M.drawShopMarkers()
     local C = G.C
     local z = G.zoom
     local label, tx, ty = nil, nil, nil
-    if G.map == "shop" and G.maps and G.maps.shop then
+    if G.phase == "shop" then
+        label = "EXIT"
+        tx, ty = 4, 8 -- shop door at bottom of 8x8 room
+    elseif G.map == "shop" and G.maps and G.maps.shop then
         label = "EXIT"
         tx, ty = G.maps.shop.door[1], G.maps.shop.door[2]
     elseif G.map ~= "shop" and G.shopOver then
@@ -1120,6 +1106,7 @@ end
 
 -- board pass in painter's order (diagonal bands s = gx+gy)
 function M.drawBoard(time)
+    local C = G.C
     love.graphics.push()
     M.drawBoardShadow()
     for s = 2, G.GRID * 2 do
@@ -1136,7 +1123,7 @@ function M.drawBoard(time)
     -- arrows in flight (recomputed per frame so they track the camera):
     -- shaft with motion trail + head, arcing over the board.
     for _, a in ipairs(G.arrows) do
-        local k = math.min(1, a.t / a.dur)
+        local k = math.min(1, a.t / (a.dur > 0 and a.dur or 0.28))
         local x0, y0 = Board.tileToScreen(a.fx, a.fy, 30)
         local x1, y1 = Board.tileToScreen(a.tx, a.ty, 30)
         local function along(e)

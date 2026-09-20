@@ -4,9 +4,6 @@
 -- spawn/finish picked first, river water, tall groves, spaced mountains,
 -- plus-shape spawn clear, retry loop with validation instead of L-carve.
 -- Supports 10x10 standard and 15x15 big via setSize/generateBigMap.
--- Shop: the overworld holds ONE "shopdoor" entrance tile (G.shopOver);
--- stepping on it teleports the unit into a separate 8x8 room
--- (G.maps.shop); the room's door tile teleports back out.
 local G = require("state")
 local M = {}
 
@@ -212,135 +209,7 @@ end
 
 function M.costAwareConnected() return pathCostToFinish() ~= nil end
 
--- ---------- shop: one-tile entrance outside, 8x8 room inside ----------
-local SHOP_N = 8 -- interior room is SHOP_N x SHOP_N
-
--- Fixed room layout: perimeter shopwall (h=1, blocked), shopfloor
--- inside, one shopdoor on the south edge, rug near the center,
--- spawn just inside the door.
-function M.newInterior()
-    local n = SHOP_N
-    local heights, terrain, blocked = {}, {}, {}
-    for y = 1, n do
-        heights[y] = {}
-        terrain[y] = {}
-        for x = 1, n do heights[y][x] = 0; terrain[y][x] = "shopfloor" end
-    end
-    for x = 1, n do
-        for _, y in ipairs({1, n}) do
-            terrain[y][x] = "shopwall"; heights[y][x] = 1; blocked[y * 100 + x] = true
-        end
-    end
-    for y = 1, n do
-        for _, x in ipairs({1, n}) do
-            terrain[y][x] = "shopwall"; heights[y][x] = 1; blocked[y * 100 + x] = true
-        end
-    end
-    terrain[n][4] = "shopdoor"
-    heights[n][4] = 0
-    blocked[n * 100 + 4] = nil
-    return { grid = n, heights = heights, terrain = terrain, blocked = blocked,
-             door = {4, n}, rug = {4, 4}, spawn = {4, n - 1} }
-end
-
--- Snapshot the live tables as the overworld and build a fresh room.
--- Call after the overworld board is final.
-function M.stashMaps()
-    G.maps = {
-        over = { grid = G.GRID, heights = G.heights,
-                 terrain = G.terrain, blocked = G.blocked },
-        shop = M.newInterior(),
-    }
-    G.map = "over"
-end
-
--- Free-play extras on the classic board: one shop entrance tile.
-function M.setupFreeShop()
-    G.terrain[5][8] = "shopdoor"
-    G.shopOver = {8, 5}
-    M.stashMaps()
-end
-
--- Swap the visible map, stashing the current tables. Resets per-frame
--- fx and the camera so the new map starts centered.
-function M.switchMap(name)
-    -- stash live tables but keep record extras (door/rug/spawn).
-    local cur = G.maps[G.map] or {}
-    cur.grid, cur.heights, cur.terrain, cur.blocked =
-        G.GRID, G.heights, G.terrain, G.blocked
-    G.maps[G.map] = cur
-    local m = G.maps[name]
-    G.map = name
-    G.GRID, G.heights, G.terrain, G.blocked = m.grid, m.heights, m.terrain, m.blocked
-    -- fixed zoomed-in framing follows the visible map size
-    if G.GRID >= 15 then G.zoom, G.zoomTarget = 1.3, 1.3
-    else G.zoom, G.zoomTarget = 1.8, 1.8 end
-    G.hover = nil
-    G.lift, G.cachedReach, G.hoverPath, G.puffs, G.arrows = {}, {}, {}, {}, {}
-    G.camX, G.camY = 0, 0
-end
-
-local function placeUnit(unit, x, y)
-    unit.gx, unit.gy = x, y
-    unit.px, unit.py = x, y
-    unit.fx, unit.fy = x, y
-    unit.path, unit.t = {}, 0
-end
-
--- Step on the overworld entrance -> appear just inside the room.
-function M.enterShop(unit)
-    local rec = G.maps and G.maps.shop
-    if not rec then return end
-    M.switchMap("shop")
-    unit.map = "shop"
-    unit.hp, unit.mana = unit.maxHP, unit.maxMana -- the shop restores you
-    placeUnit(unit, rec.spawn[1], rec.spawn[2])
-    G.pushLog(unit.name .. " enters the shop — fully restored")
-end
-
--- Step on the room door -> appear back on the entrance tile (or a free
--- orth neighbor if someone is standing on it). Path is always cleared.
-function M.exitShop(unit)
-    local over = G.maps and G.maps.over
-    if not over or not G.shopOver then return end
-    local tx, ty = G.shopOver[1], G.shopOver[2]
-    local function occ(x, y)
-        for _, u in ipairs(G.units) do
-            if u ~= unit and u.map == "over" and u.gx == x and u.gy == y then return true end
-        end
-        return false
-    end
-    if occ(tx, ty) then
-        local found = false
-        for _, d in ipairs(DIRS) do
-            local nx, ny = tx + d[1], ty + d[2]
-            if nx >= 1 and ny >= 1 and nx <= over.grid and ny <= over.grid
-                and not over.blocked[ny * 100 + nx] and not occ(nx, ny) then
-                tx, ty = nx, ny
-                found = true
-                break
-            end
-        end
-        if not found then G.pushLog(unit.name .. ": door blocked") return end
-    end
-    M.switchMap("over")
-    unit.map = "over"
-    placeUnit(unit, tx, ty)
-    G.pushLog(unit.name .. " leaves the shop")
-end
-
--- Step hook (called from the glide onStep chain): standing on a door
--- tile teleports, either direction. Entering/exiting clears the path.
-function M.checkShop(u)
-    if u.team == "enemy" then return end -- heroes only use doors
-    local t = G.terrain[u.gy] and G.terrain[u.gy][u.gx]
-    if t ~= "shopdoor" then return end
-    if G.map == "shop" then
-        M.exitShop(u)
-    elseif G.shopOver and u.gx == G.shopOver[1] and u.gy == G.shopOver[2] then
-        M.enterShop(u)
-    end
-end
+-- ---------- shop: removed (now a between-rounds phase, not a map) ----------
 
 function M.carvePath()
     -- last-resort fallback only (retry loop should already have connected).
@@ -560,26 +429,9 @@ local function buildAttempt(seed, level, size, prof)
     G.heights[finish[2]][finish[1]] = 0
     G.blocked[finish[2] * 100 + finish[1]] = nil
 
-    -- shop entrance: one walkable "shopdoor" tile (never an endpoint).
-    -- The room itself lives in G.maps.shop; stepping on this teleports in.
-    local doors = {}
-    for y = 1, n do for x = 1, n do
-        local t = G.terrain[y][x]
-        if (t == "default" or t == "grass" or t == "meadow" or t == "flower")
-            and not (x == spawn[1] and y == spawn[2])
-            and not (x == finish[1] and y == finish[2]) then
-            doors[#doors + 1] = {x, y}
-        end
-    end end
-    if #doors == 0 then return false end
-    local door = rng.pick(doors)
-    G.terrain[door[2]][door[1]] = "shopdoor"
-    G.shopOver = {door[1], door[2]}
-
     -- validation
     local cost = pathCostToFinish()
     if not cost then return false end
-    if not G.shopOver then return false end
     local man = math.abs(spawn[1] - finish[1]) + math.abs(spawn[2] - finish[2])
     if cost > man + 12 then return false end
     local cw, cg, ct = 0, 0, 0
@@ -609,8 +461,6 @@ function M.generateMap(level, size, seedOverride)
         -- fallback: keep last attempt, repair minimally (should be ~never)
         if not M.costAwareConnected() then M.carvePath() end
     end
-    -- stash both maps; the overworld stays visible.
-    M.stashMaps()
     G.runLevel = level
     G.runSeed = seed
     return seed

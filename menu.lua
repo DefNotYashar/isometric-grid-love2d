@@ -36,6 +36,11 @@ function M.draw(time)
     local C = G.C
     -- full-screen menu: own backdrop, no board behind
     Render.drawBackdrop(time)
+    -- shop phase
+    if G.phase == "shop" then
+        M.drawShop(time)
+        return
+    end
     -- big title left, menu right
     local cx = G.W / 2
     love.graphics.setFont(G.fontTitle)
@@ -375,18 +380,256 @@ function M.updateWin(dt)
 end
 
 function M.checkClear()
-    -- win = clear all enemies on the overworld -> transition, then next round.
-    if G.state ~= "game" or G.gameMode ~= "run" or G.map ~= "over" then return end
+    -- win = clear all enemies on the overworld -> transition to shop, then next round.
+    if G.state ~= "game" or G.gameMode ~= "run" then return end
     if G.win then return end
     for _, e in ipairs(G.units) do
         if e.team == "enemy" and e.hp > 0 then return end
     end
-    M.beginWin()
+    M.enterShop()
 end
 
 function M.checkFinish(u)
-    Board.checkShop(u)
     M.checkClear()
+end
+
+-- ---------- shop phase (between rounds) ----------
+local Gnome = require("assets.units.gnome")
+
+-- Shop item definitions (placeholder - items added in next phase)
+local SHOP_ITEMS = {
+    { id = "hp_up", name = "VITALITY ELIXIR", desc = "+4 Max HP", cost = 15, icon = "♥" },
+    { id = "mp_up", name = "MANA TONIC", desc = "+3 Max MP", cost = 12, icon = "◆" },
+    { id = "str_up", name = "STRENGTH TONIC", desc = "+1 STR", cost = 20, icon = "⚔" },
+    { id = "dex_up", name = "AGILITY DRAUGHT", desc = "+1 DEX", cost = 20, icon = "⚡" },
+}
+
+function M.enterShop()
+    G.phase = "shop"
+    -- create shop room layout (8x8 timber room with rug)
+    local n = 8
+    G.heights, G.terrain, G.blocked = {}, {}, {}
+    for y = 1, n do
+        G.heights[y] = {}
+        G.terrain[y] = {}
+        for x = 1, n do G.heights[y][x] = 0; G.terrain[y][x] = "shopfloor" end
+    end
+    for x = 1, n do
+        for _, y in ipairs({1, n}) do
+            G.terrain[y][x] = "shopwall"; G.heights[y][x] = 1; G.blocked[y * 100 + x] = true
+        end
+    end
+    for y = 1, n do
+        for _, x in ipairs({1, n}) do
+            G.terrain[y][x] = "shopwall"; G.heights[y][x] = 1; G.blocked[y * 100 + x] = true
+        end
+    end
+    G.terrain[n][4] = "shopdoor"
+    G.heights[n][4] = 0
+    G.blocked[n * 100 + 4] = nil
+    G.GRID = n
+    G.map = "shop"
+    -- spawn shopkeeper at counter (tile 4,2)
+    G.shop.keeper = Units.spawnUnit({
+        id = "shopkeep", name = "GRIZZLE", gx = 4, gy = 2,
+        color = {0.85, 0.65, 0.18}, dark = {0.55, 0.40, 0.10},
+        kind = "shopkeep", team = "neutral", stats = {vigor=5,strength=3,dexterity=2,luck=3,speed=2,charisma=4}
+    })
+    G.shop.keeper.px, G.shop.keeper.py = 4, 2
+    G.shop.keeper.fx, G.shop.keeper.fy = 4, 2
+    G.shop.keeper.map = "shop"
+    -- place hero at entrance (tile 4,7)
+    local hero = G.units[1]
+    hero.gx, hero.gy = 4, 7
+    hero.px, hero.py = 4, 7
+    hero.fx, hero.fy = 4, 7
+    hero.map = "shop"
+    hero.path, hero.t = {}, 0
+    hero.moved, hero.attacked, hero.acted = false, false, false
+    hero.hp, hero.mana = hero.maxHP, hero.maxMana -- shop restores fully
+    -- camera framing
+    G.zoom, G.zoomTarget = 2.1, 2.1
+    G.camX, G.camY = 0, 0
+    -- shop items
+    G.shop.items = SHOP_ITEMS
+    G.shop.selected = 1
+    G.shop.buyBtns = {}
+    G.shop.leaveBtn = nil
+    G.pushLog("Welcome to Grizzle's Emporium!")
+end
+
+function M.leaveShop()
+    G.phase = "play"
+    -- generate next level
+    M.nextLevel()
+end
+
+function M.drawShop(time)
+    local C = G.C
+    Render.drawBackdrop(time)
+    Render.drawBoard(time)
+    -- shopkeeper
+    if G.shop.keeper then Gnome.drawGnome(G.shop.keeper, time, G, Board, C) end
+    -- hero
+    local hero = G.units[1]
+    if hero then
+        if hero.kind == "knight" then Knight.drawKnight(hero, time, G, Board, C)
+        else Render.drawPawn(hero, time) end
+    end
+    -- UI overlay
+    local cx = G.W / 2
+    -- title bar
+    love.graphics.setFont(G.fontTitle)
+    love.graphics.setColor(C.ink)
+    love.graphics.printf("GRIZZLE'S EMPORIUM", 0, 20, G.W, "center")
+    love.graphics.setColor(C.select)
+    love.graphics.rectangle("fill", cx - 100, 52, 200, 2)
+    -- coins
+    love.graphics.setFont(G.fontBody)
+    love.graphics.setColor(C.coin)
+    love.graphics.printf("COINS: " .. (G.coins or 0) .. "c", 0, 60, G.W, "center")
+    -- item list
+    local startY = 110
+    for i, item in ipairs(G.shop.items) do
+        local sel = (i == G.shop.selected)
+        local iy = startY + (i - 1) * 50
+        local iw, ih = 500, 42
+        local ix = cx - iw / 2
+        -- background
+        love.graphics.setColor(sel and {C.select[1], C.select[2], C.select[3], 0.18} or C.panel)
+        love.graphics.rectangle("fill", ix, iy, iw, ih, 6, 6)
+        love.graphics.setColor(sel and C.select or C.panelLn)
+        love.graphics.rectangle("line", ix, iy, iw, ih, 6, 6)
+        -- icon
+        love.graphics.setFont(G.fontTitle)
+        love.graphics.setColor(C.coin)
+        love.graphics.print(item.icon, ix + 16, iy + 4)
+        -- name + cost
+        love.graphics.setFont(G.fontBody)
+        love.graphics.setColor(sel and C.selInk or C.ink)
+        love.graphics.print(item.name .. "  —  " .. item.cost .. "c", ix + 60, iy + 4)
+        -- desc
+        love.graphics.setFont(G.fontSmall)
+        love.graphics.setColor(C.muted)
+        love.graphics.print(item.desc, ix + 60, iy + 22)
+        -- buy button rect
+        G.shop.buyBtns[i] = { x = ix + iw - 110, y = iy + 6, w = 96, h = 30, item = item }
+    end
+    -- leave button
+    local lw, lh = 200, 40
+    local lx = cx - lw / 2
+    local ly = startY + #G.shop.items * 50 + 20
+    G.shop.leaveBtn = { x = lx, y = ly, w = lw, h = lh }
+    local mx, my = love.mouse.getPosition()
+    local hot = mx >= lx and mx <= lx + lw and my >= ly and my <= ly + lh
+    love.graphics.setColor(hot and C.select or C.panelLn)
+    love.graphics.rectangle(hot and "fill" or "line", lx, ly, lw, lh, 6, 6)
+    love.graphics.setColor(hot and C.panel or C.selInk)
+    love.graphics.setFont(G.fontBody)
+    love.graphics.printf("LEAVE SHOP", lx, ly + 10, lw, "center")
+    -- hint
+    love.graphics.setFont(G.fontSmall)
+    love.graphics.setColor(C.muted)
+    love.graphics.printf("WASD / CLICK move  •  ENTER / CLICK buy  •  ESC leave", 0, G.H - 40, G.W, "center")
+end
+
+function M.updateShop(dt)
+    local hero = G.units[1]
+    if not hero then return end
+    -- simple WASD movement in shop (no turn system)
+    local moved = false
+    if love.keyboard.isDown("w") or love.keyboard.isDown("up") then
+        M.tryShopMove(hero, 0, -1); moved = true
+    elseif love.keyboard.isDown("s") or love.keyboard.isDown("down") then
+        M.tryShopMove(hero, 0, 1); moved = true
+    elseif love.keyboard.isDown("a") or love.keyboard.isDown("left") then
+        M.tryShopMove(hero, -1, 0); moved = true
+    elseif love.keyboard.isDown("d") or love.keyboard.isDown("right") then
+        M.tryShopMove(hero, 1, 0); moved = true
+    end
+    if moved then
+        hero.path = { {hero.gx, hero.gy} }
+        hero.t = 0
+        hero.fx, hero.fy = hero.gx, hero.gy
+    end
+    -- update glide
+    Units.updateGlide(dt, function(u) end)
+end
+
+function M.tryShopMove(unit, dx, dy)
+    local nx, ny = unit.gx + dx, unit.gy + dy
+    if nx < 1 or ny < 1 or nx > G.GRID or ny > G.GRID then return end
+    if Board.isBlocked(nx, ny) then return end
+    if G.shop.keeper and G.shop.keeper.gx == nx and G.shop.keeper.gy == ny then return end
+    unit.gx, unit.gy = nx, ny
+end
+
+function M.shopMousepressed(x, y, button)
+    if button ~= 1 then return end
+    -- buy buttons
+    for _, btn in ipairs(G.shop.buyBtns) do
+        if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
+            M.buyItem(btn.item)
+            return
+        end
+    end
+    -- leave button
+    if G.shop.leaveBtn and x >= G.shop.leaveBtn.x and x <= G.shop.leaveBtn.x + G.shop.leaveBtn.w
+        and y >= G.shop.leaveBtn.y and y <= G.shop.leaveBtn.y + G.shop.leaveBtn.h then
+        M.leaveShop()
+        return
+    end
+    -- click to move (simple pathfinding not needed in small shop)
+    local gx, gy = Board.pickTile(x, y)
+    if gx and gy and not Board.isBlocked(gx, gy) then
+        local hero = G.units[1]
+        if hero and (gx ~= hero.gx or gy ~= hero.gy) then
+            -- simple 1-step for now
+            if math.abs(gx - hero.gx) + math.abs(gy - hero.gy) == 1 then
+                M.tryShopMove(hero, gx - hero.gx, gy - hero.gy)
+                hero.path = { {hero.gx, hero.gy} }
+                hero.t = 0
+                hero.fx, hero.fy = hero.gx, hero.gy
+            end
+        end
+    end
+end
+
+function M.shopKeypressed(key)
+    if key == "escape" then M.leaveShop(); return end
+    if key == "return" or key == "space" then
+        local item = G.shop.items[G.shop.selected]
+        if item then M.buyItem(item) end
+        return
+    end
+    if key == "up" or key == "w" then
+        G.shop.selected = math.max(1, G.shop.selected - 1)
+    elseif key == "down" or key == "s" then
+        G.shop.selected = math.min(#G.shop.items, G.shop.selected + 1)
+    end
+end
+
+function M.buyItem(item)
+    if (G.coins or 0) < item.cost then
+        G.pushLog("Not enough coins!")
+        return
+    end
+    G.coins = G.coins - item.cost
+    local hero = G.units[1]
+    if item.id == "hp_up" then
+        hero.maxHP = hero.maxHP + 4
+        hero.hp = hero.maxHP
+        hero.stats.vigor = (hero.stats.vigor or 0) + 1
+    elseif item.id == "mp_up" then
+        hero.maxMana = hero.maxMana + 3
+        hero.mana = hero.maxMana
+        hero.stats.charisma = (hero.stats.charisma or 0) + 1
+    elseif item.id == "str_up" then
+        hero.stats.strength = (hero.stats.strength or 0) + 1
+    elseif item.id == "dex_up" then
+        hero.stats.dexterity = (hero.stats.dexterity or 0) + 1
+    end
+    G.pushLog("Bought " .. item.name .. "!")
 end
 
 function M.applyMode(m)
@@ -403,7 +646,6 @@ function M.applyMode(m)
     end
     G.spawnTile, G.finishTile = {1, 1}, {G.GRID, G.GRID}
     Board.paintFreeMeadow()
-    Board.setupFreeShop()
     Units.spawnAll()
     G.pushLog("mode: " .. m)
 end
@@ -431,6 +673,10 @@ end
 
 -- menu key handling. Returns true (consumed).
 function M.keypressed(key)
+    if G.phase == "shop" then
+        M.shopKeypressed(key)
+        return true
+    end
     if G.menuScreen == "select" then
         -- carousel: left/right wraps the pool, ENTER confirms.
         if key == "left" or key == "a" or key == "up" then M.switchSelect(-1)
