@@ -1172,6 +1172,10 @@ function M.drawBoard(time)
         love.graphics.pop()
     end
     love.graphics.pop()
+
+    -- Debug level view (F3 to toggle)
+    local LevelDebug = require("systems.level_debug")
+    LevelDebug.draw()
 end
 
 -- win cinematic (G.win set, phases "zoom"/"rewards"): impact flash,

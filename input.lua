@@ -54,6 +54,7 @@ function M.mousepressed(x, y, button)
     if G.state == "menu" then
         if button == 1 then
             if G.menuScreen == "select" then Menu.clickSelect(x, y)
+            elseif G.menuScreen == "path_choice" then Menu.clickPathChoice(x, y)
             else
                 local hit = Menu.hit(x, y)
                 if hit then G.menuIdx = hit; Menu.activate() end
@@ -84,7 +85,16 @@ function M.mousepressed(x, y, button)
                 local db = G.upgDescendBtn
                 if db and x >= db.x and x <= db.x + db.w
                     and y >= db.y and y <= db.y + db.h then
-                    Menu.nextLevel()
+                    G.win = nil
+                    -- If we just beat the boss (level 5+), end the run
+                    if G.runLevel >= 5 then
+                        G.state = "menu"
+                        G.menuScreen = "main"
+                        G.menuIdx = 1
+                        G.pushLog("RUN COMPLETE — Forest cleared!")
+                    else
+                        Menu.enterShop()
+                    end
                     return
                 end
                 for i, bb in ipairs(G.upgSlotBtns or {}) do
@@ -97,6 +107,11 @@ function M.mousepressed(x, y, button)
             end
         end
         return
+    end
+    -- Level editor mouse handling (only when editor is active)
+    local LevelEditor = require("systems.level_editor")
+    if LevelEditor.enabled then
+        if LevelEditor.mousepressed(x, y, button) then return end
     end
     if button == 1 then
         -- turn-box buttons first (screen-space rects set by render).
@@ -173,13 +188,42 @@ function M.keypressed(key)
         -- win flow: SPACE/ENTER advances, everything else locked.
         if key == "space" or key == "return" then
             if G.win.phase == "rewards" then Menu.toUpgrade()
-            elseif G.win.phase == "upgrade" then Menu.nextLevel() end
+            elseif G.win.phase == "upgrade" then
+                G.win = nil
+                -- If we just beat the boss (level 5+), end the run
+                if G.runLevel >= 5 then
+                    G.state = "menu"
+                    G.menuScreen = "main"
+                    G.menuIdx = 1
+                    G.pushLog("RUN COMPLETE — Forest cleared!")
+                else
+                    Menu.enterShop()
+                end
+            end
         end
         return
     end
     local a = G.units[G.activeIdx]
     if key == "escape" then G.state = "menu"; G.menuIdx = 1 return end
     if key == "c" then G.showStats = not G.showStats return end
+    if key == "f2" then
+        local LevelEditor = require("systems.level_editor")
+        LevelEditor.toggle()
+        return
+    end
+    if key == "f3" then
+        local LevelDebug = require("systems.level_debug")
+        LevelDebug.toggle()
+        if LevelDebug.enabled then LevelDebug.printLevel() end
+        return
+    end
+    if key == "f4" then
+        local LevelGenerator = require("systems.level_generator")
+        LevelGenerator.generateAndSave("forest", "normal", 5, math.random(1, 999999))
+        LevelGenerator.generateAndSave("forest", "elite", 3, math.random(1, 999999))
+        LevelGenerator.generateAndSave("forest", "boss", 2, math.random(1, 999999))
+        return
+    end
     if G.ai then return end -- enemy beat playing: board input locked
     if key == "tab" then
         -- cycle unacted heroes on the visible map (falls back to all heroes).

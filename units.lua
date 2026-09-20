@@ -98,11 +98,31 @@ end
 -- Flavor + threat readout for the hover intel panel (bio written once here).
 function M.bioOf(u)
     if u.kind == "archer" then
+        if u.id == "boss" or u.name == "Ancient Skeleton" then
+            return { kind = "ANCIENT SKELETON", style = "BOSS",
+                threat = "BOW " .. (u.rangedDmg or M.BOSS_SKELETON_DMG) .. "  ·  RNG " ..
+                    (u.shotRange or M.BOSS_SKELETON_RANGE) .. "  ·  MOVE " .. (u.range or 4) .. "  ·  HP " .. (u.maxHP or 40),
+                bio = "The first captain of the old guard, denied rest by the meadow's curse. " ..
+                    "Its arrows never miss, and it remembers every soul it has sent down." }
+        end
+        if u.name == "Ancient Druid" then
+            return { kind = "ANCIENT DRUID", style = "BOSS",
+                threat = "NATURE " .. (u.rangedDmg or M.BOSS_DRUID_DMG) .. "  ·  RNG " ..
+                    (u.shotRange or M.BOSS_DRUID_RANGE) .. "  ·  MOVE " .. (u.range or 3) .. "  ·  HP " .. (u.maxHP or 50),
+                bio = "The meadow's oldest guardian, fused with the wild itself. " ..
+                    "It commands roots and vines to crush those who trespass." }
+        end
         return { kind = "SKELETON ARCHER", style = "RANGED",
             threat = "BOW " .. (u.rangedDmg or M.ARCHER_DMG) .. "  ·  RNG " ..
                 (u.shotRange or M.ARCHER_RANGE) .. "  ·  MOVE " .. (u.range or 4),
             bio = "A conscripted guardsman who never got to rest. Its bow arm still " ..
                 "remembers every drill — and it hates sharing the meadow." }
+    end
+    if u.kind == "slime" and u.name == "Lava Golem" then
+        return { kind = "LAVA GOLEM", style = "BOSS",
+            threat = "MAGMA " .. (u.stats and u.stats.strength or 5) * 2 .. "  ·  MOVE " .. (u.range or 2) .. "  ·  HP " .. (u.maxHP or 60),
+            bio = "A construct of molten rock and ancient rage. " ..
+                "Each step scorches the earth, and its fists shatter stone." }
     end
     return { kind = "SLIME", style = "MELEE",
         threat = "DMG " .. M.attackDamage(u) .. "  ·  MOVE " .. (u.range or 1),
@@ -125,29 +145,37 @@ end
 -- Run maps: guards scale with level — count 2 + level/2 (max 4),
 -- +1 vigor/strength per 2 levels. Archers join from level 2
 -- (1, then 2 from level 4): HP 10 + 2/level-step, fixed 5 ranged dmg.
+-- Now uses level's enemy_spawns instead of random scattering.
 function M.spawnRunEnemies()
     local lvl = G.runLevel or 1
     local n = math.min(2 + math.floor(lvl / 2), 4)
     local bonus = math.floor(lvl / 2)
-    local sx, sy = G.spawnTile[1], G.spawnTile[2]
-    -- scatter away from the player start (no finish-tile dependency).
-    local spots = {}
-    for y = 1, G.GRID do for x = 1, G.GRID do
-        if Board.inBounds(x, y) and not Board.isBlocked(x, y)
-            and not M.unitAt(x, y)
-            and not (x == sx and y == sy)
-            and (math.abs(x - sx) + math.abs(y - sy)) >= 4 then
-            local t = G.terrain[y] and G.terrain[y][x]
-            if t ~= "shopdoor" and t ~= "shopwall" then
-                spots[#spots + 1] = { x, y }
+
+    -- Use level's enemy spawn positions
+    local spawns = G.enemySpawns or {}
+    if #spawns == 0 then
+        -- Fallback: old behavior
+        local sx, sy = G.spawnTile[1], G.spawnTile[2]
+        spawns = {}
+        for y = 1, G.GRID do for x = 1, G.GRID do
+            if Board.inBounds(x, y) and not Board.isBlocked(x, y)
+                and not M.unitAt(x, y)
+                and not (x == sx and y == sy)
+                and (math.abs(x - sx) + math.abs(y - sy)) >= 4 then
+                local t = G.terrain[y] and G.terrain[y][x]
+                if t ~= "shopdoor" and t ~= "shopwall" then
+                    spawns[#spawns + 1] = { x, y }
+                end
             end
-        end
-    end end
-    -- shuffle so picks vary across levels
-    for i = #spots, 2, -1 do
-        local j = math.random(i)
-        spots[i], spots[j] = spots[j], spots[i]
+        end end
     end
+
+    -- Shuffle spawns for variety
+    for i = #spawns, 2, -1 do
+        local j = math.random(i)
+        spawns[i], spawns[j] = spawns[j], spawns[i]
+    end
+
     local base = M.defaultEnemies()[1]
     local nArchers = math.min(math.floor(lvl / 2), 2, n)
     local defs = {}
@@ -165,9 +193,161 @@ function M.spawnRunEnemies()
                       dexterity = base.stats.dexterity, luck = base.stats.luck,
                       speed = base.stats.speed, charisma = base.stats.charisma } }
     end
-    for i = 1, math.min(n, #spots) do
+
+    for i = 1, math.min(n, #spawns) do
         local u = M.spawnUnit(defs[i])
-        u.gx, u.gy = spots[i][1], spots[i][2]
+        u.gx, u.gy = spawns[i].x, spawns[i].y
+        u.px, u.py = u.gx, u.gy
+        u.fx, u.fy = u.gx, u.gy
+        u.map = "over"
+        G.units[#G.units + 1] = u
+    end
+end
+
+-- Spawn enemies from an encounter definition
+-- encounter: { id, enemies = { "slime", "skeleton", ... } }
+-- Uses G.enemySpawns from the level for positions
+function M.spawnEncounterEnemies(encounter)
+    local spawns = G.enemySpawns or {}
+    if #spawns == 0 then return end
+
+    -- Shuffle spawns for variety
+    for i = #spawns, 2, -1 do
+        local j = math.random(i)
+        spawns[i], spawns[j] = spawns[j], spawns[i]
+    end
+
+    local lvl = G.runLevel or 1
+    local bonus = math.floor(lvl / 2)
+
+    for i, enemyType in ipairs(encounter.enemies) do
+        if i > #spawns then break end
+        local spawn = spawns[i]
+
+        local def
+        if enemyType == "slime" then
+            def = {
+                id = "e" .. i, name = "Slime " .. string.char(64 + i),
+                team = "enemy", kind = "slime", color = SLIME_COLOR, dark = SLIME_DARK,
+                stats = { vigor = 1 + bonus, strength = 1 + bonus, dexterity = 1,
+                          luck = 1, speed = 1, charisma = 1 }
+            }
+        elseif enemyType == "skeleton" then
+            def = {
+                id = "a" .. i, name = "Skeleton " .. string.char(64 + i),
+                team = "enemy", kind = "archer", color = ARCHER_COLOR, dark = ARCHER_DARK,
+                maxHP = 10 + bonus * 2, move = 4,
+                rangedDmg = M.ARCHER_DMG, shotRange = M.ARCHER_RANGE,
+                stats = ARCHER_STATS
+            }
+        else
+            -- Unknown type, default to slime
+            def = {
+                id = "e" .. i, name = "Slime " .. string.char(64 + i),
+                team = "enemy", kind = "slime", color = SLIME_COLOR, dark = SLIME_DARK,
+                stats = { vigor = 1 + bonus, strength = 1 + bonus, dexterity = 1,
+                          luck = 1, speed = 1, charisma = 1 }
+            }
+        end
+
+        local u = M.spawnUnit(def)
+        u.gx, u.gy = spawn.x, spawn.y
+        u.px, u.py = u.gx, u.gy
+        u.fx, u.fy = u.gx, u.gy
+        u.map = "over"
+        G.units[#G.units + 1] = u
+    end
+end
+
+-- Boss stats
+local BOSS_SKELETON_STATS = { vigor = 8, strength = 3, dexterity = 3,
+                               luck = 3, speed = 3, charisma = 2 }
+local BOSS_SKELETON_COLOR = {0.95, 0.90, 0.75}
+local BOSS_SKELETON_DARK = {0.55, 0.50, 0.38}
+M.BOSS_SKELETON_RANGE, M.BOSS_SKELETON_DMG = 4, 8
+
+-- Boss Druid stats (caster/support)
+local BOSS_DRUID_STATS = { vigor = 10, strength = 1, dexterity = 2,
+                            luck = 3, speed = 2, charisma = 5 }
+local BOSS_DRUID_COLOR = {0.40, 0.85, 0.45}
+local BOSS_DRUID_DARK = {0.20, 0.55, 0.25}
+M.BOSS_DRUID_RANGE, M.BOSS_DRUID_DMG = 3, 6
+
+-- Boss Lava Golem stats (melee tank)
+local BOSS_LAVA_GOLEM_STATS = { vigor = 12, strength = 5, dexterity = 1,
+                                 luck = 2, speed = 2, charisma = 1 }
+local BOSS_LAVA_GOLEM_COLOR = {0.95, 0.45, 0.15}
+local BOSS_LAVA_GOLEM_DARK = {0.60, 0.25, 0.08}
+M.BOSS_LAVA_GOLEM_RANGE, M.BOSS_LAVA_GOLEM_DMG = 1, 10
+
+function M.spawnEncounterEnemies(encounter)
+    local spawns = G.enemySpawns or {}
+    if #spawns == 0 then return end
+
+    -- Shuffle spawns for variety
+    for i = #spawns, 2, -1 do
+        local j = math.random(i)
+        spawns[i], spawns[j] = spawns[j], spawns[i]
+    end
+
+    local lvl = G.runLevel or 1
+    local bonus = math.floor(lvl / 2)
+
+    for i, enemyType in ipairs(encounter.enemies) do
+        if i > #spawns then break end
+        local spawn = spawns[i]
+
+        local def
+        if enemyType == "slime" then
+            def = {
+                id = "e" .. i, name = "Slime " .. string.char(64 + i),
+                team = "enemy", kind = "slime", color = SLIME_COLOR, dark = SLIME_DARK,
+                stats = { vigor = 1 + bonus, strength = 1 + bonus, dexterity = 1,
+                          luck = 1, speed = 1, charisma = 1 }
+            }
+        elseif enemyType == "skeleton" then
+            def = {
+                id = "a" .. i, name = "Skeleton " .. string.char(64 + i),
+                team = "enemy", kind = "archer", color = ARCHER_COLOR, dark = ARCHER_DARK,
+                maxHP = 10 + bonus * 2, move = 4,
+                rangedDmg = M.ARCHER_DMG, shotRange = M.ARCHER_RANGE,
+                stats = ARCHER_STATS
+            }
+        elseif enemyType == "boss_skeleton" then
+            def = {
+                id = "boss", name = "Ancient Skeleton",
+                team = "enemy", kind = "archer", color = BOSS_SKELETON_COLOR, dark = BOSS_SKELETON_DARK,
+                maxHP = 40, move = 4,
+                rangedDmg = M.BOSS_SKELETON_DMG, shotRange = M.BOSS_SKELETON_RANGE,
+                stats = BOSS_SKELETON_STATS
+            }
+        elseif enemyType == "boss_druid" then
+            def = {
+                id = "boss", name = "Ancient Druid",
+                team = "enemy", kind = "archer", color = BOSS_DRUID_COLOR, dark = BOSS_DRUID_DARK,
+                maxHP = 50, move = 3,
+                rangedDmg = M.BOSS_DRUID_DMG, shotRange = M.BOSS_DRUID_RANGE,
+                stats = BOSS_DRUID_STATS
+            }
+        elseif enemyType == "boss_lava_golem" then
+            def = {
+                id = "boss", name = "Lava Golem",
+                team = "enemy", kind = "slime", color = BOSS_LAVA_GOLEM_COLOR, dark = BOSS_LAVA_GOLEM_DARK,
+                maxHP = 60, move = 2,
+                stats = BOSS_LAVA_GOLEM_STATS
+            }
+        else
+            -- Unknown type, default to slime
+            def = {
+                id = "e" .. i, name = "Slime " .. string.char(64 + i),
+                team = "enemy", kind = "slime", color = SLIME_COLOR, dark = SLIME_DARK,
+                stats = { vigor = 1 + bonus, strength = 1 + bonus, dexterity = 1,
+                          luck = 1, speed = 1, charisma = 1 }
+            }
+        end
+
+        local u = M.spawnUnit(def)
+        u.gx, u.gy = spawn.x, spawn.y
         u.px, u.py = u.gx, u.gy
         u.fx, u.fy = u.gx, u.gy
         u.map = "over"
@@ -593,19 +773,21 @@ function M.orderAttack(att, target)
     afterAction(att)
 end
 
--- Kill reward: +1 maxHP, heal 2, plus a coin bounty (5 + level).
--- Per-level counters feed the win-transition reward card.
+-- Kill tracker: no HP/mana/coin per kill — reward granted on round clear.
 function M.rewardKill(killer)
-    killer.maxHP = killer.maxHP + 1
-    killer.hp = math.min(killer.maxHP, killer.hp + 2)
-    local bounty = 5 + (G.runLevel or 1)
-    G.coins = (G.coins or 0) + bounty
     G.levelKills = (G.levelKills or 0) + 1
-    G.levelCoins = (G.levelCoins or 0) + bounty
-    G.levelHp = (G.levelHp or 0) + 1
-    M.addFloat(killer.gx, killer.gy, "+2", G.C.floatHeal)
-    M.addFloat(killer.gx, killer.gy - 0.5, "+" .. bounty .. "c", G.C.coin)
-    G.pushLog(killer.name .. " grows tougher (+1 maxHP, +2 HP, +" .. bounty .. "c)")
+    G.pushLog(killer.name .. " defeated a foe!")
+end
+
+function M.grantRoundReward()
+    local bounty = (5 + (G.runLevel or 1)) * (G.levelKills or 0)
+    if bounty > 0 then
+        G.coins = (G.coins or 0) + bounty
+        G.levelCoins = bounty
+        G.pushLog("Round cleared — +" .. bounty .. "c!")
+        local hero = G.units[1]
+        if hero then M.addFloat(hero.gx, hero.gy - 0.5, "+" .. bounty .. "c", G.C.coin) end
+    end
 end
 
 -- Firebolt: ranged spell, CHA-based, costs mana. Uses the attack action;

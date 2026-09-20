@@ -116,6 +116,10 @@ function love.update(dt)
     if G.win then Menu.updateWin(dt) -- win cinematic: zoom on hero, then swap
     else Menu.checkClear() end -- kills land via attacks, not steps: poll win
     
+    -- Level editor update
+    local LevelEditor = require("systems.level_editor")
+    LevelEditor.update(dt)
+    
     -- music: crossfade between menu and game tracks on state changes
     -- (no hard cuts); master volume follows the settings screen (0..10).
     local wantMenu = (G.state == "menu")
@@ -160,6 +164,9 @@ function love.draw()
     Render.drawPortrait()
     if G.win then Render.drawWin() end
     if G.state == "over" then Render.drawGameOver() end
+    -- Level editor draw (on top of everything)
+    local LevelEditor = require("systems.level_editor")
+    LevelEditor.draw()
 end
 
 function love.mousepressed(x, y, button)

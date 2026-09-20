@@ -98,6 +98,57 @@ function M.setSize(n)
     G.spawnTile, G.finishTile = {1, 1}, {n, n}
 end
 
+-- Load a runtime level (from level_loader) into global state G
+-- level: {id, width, height, tiles, heights, player_spawns, enemy_spawns, tags}
+function M.loadLevel(level)
+    M.setSize(level.width)
+    G.GRID = level.width
+
+    -- Terrain (tiles)
+    for y = 1, level.height do
+        for x = 1, level.width do
+            G.terrain[y][x] = level.tiles[y][x] or "default"
+        end
+    end
+
+    -- Heights
+    for y = 1, level.height do
+        for x = 1, level.width do
+            G.heights[y][x] = level.heights[y][x] or 0
+        end
+    end
+
+    -- Blocked from heights (height 2 = mountain = blocked)
+    G.blocked = {}
+    for y = 1, level.height do
+        for x = 1, level.width do
+            if G.heights[y][x] >= 2 then
+                G.blocked[y * 100 + x] = true
+            end
+            -- Water is NOT blocked (costs 2 movement)
+        end
+    end
+
+    -- Player spawn: use first player_spawn as primary spawnTile
+    if level.player_spawns and #level.player_spawns > 0 then
+        G.spawnTile = { level.player_spawns[1].x, level.player_spawns[1].y }
+    else
+        G.spawnTile = { 1, level.height }
+    end
+
+    -- Store level metadata for battle setup
+    G.currentLevel = level
+    G.playerSpawns = level.player_spawns
+    G.enemySpawns = level.enemy_spawns
+
+    -- Clear per-tile fx
+    G.lift = {}
+    G.cachedReach = {}
+    G.hoverPath = {}
+
+    return level
+end
+
 function M.clearBoard()
     for y = 1, G.GRID do
         for x = 1, G.GRID do G.heights[y][x] = 0; G.terrain[y][x] = "default" end

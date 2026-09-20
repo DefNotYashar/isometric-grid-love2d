@@ -16,6 +16,8 @@ function M.items()
         for _, def in ipairs(G.roster) do items[#items + 1] = def.name:upper() end
         items[#items + 1] = "BACK"
         return items
+    elseif G.menuScreen == "path_choice" then
+        return { "NORMAL PATH", "ELITE PATH", "BACK" }
     else return { M.volumeLabel(), "BACK" } end
 end
 
@@ -52,6 +54,8 @@ function M.draw(time)
     if G.menuScreen == "modes" then sub = "CHOOSE HOW TO PLAY"
     elseif G.menuScreen == "select" then
         sub = "CHOOSE YOUR PAWN"
+    elseif G.menuScreen == "path_choice" then
+        sub = "CHOOSE YOUR PATH"
     elseif G.menuScreen == "settings" then sub = "SETTINGS"
     else sub = "10 x 10 BLOCK FIELD" end
     love.graphics.printf(sub, 0, G.H * 0.22 + 40, G.W, "center")
@@ -60,6 +64,10 @@ function M.draw(time)
 
     if G.menuScreen == "select" then
         M.drawSelect(time)
+        return
+    end
+    if G.menuScreen == "path_choice" then
+        M.drawPathChoice(time)
         return
     end
     local items = M.items()
@@ -98,28 +106,40 @@ M.selLeft, M.selRight, M.selConfirm, M.selBack = nil, nil, nil, nil
 
 local function withAlpha(c, a) return { c[1], c[2], c[3], (c[4] or 1) * a } end
 
--- big pawn bust (mirrors the in-game pawn look): shadow, base,
--- two-tone body, collar, head, highlight. (x, feetY) anchor, s scale.
+-- full-body bust (shadow + legs + arms + torso + head). Clipped by stencil to medallion.
 local function drawBust(def, x, feetY, s, alpha)
     local col, dark = withAlpha(def.color, alpha), withAlpha(def.dark, alpha)
     love.graphics.setColor(0, 0, 0, 0.30 * alpha)
     love.graphics.ellipse("fill", x, feetY, 11 * s, 4.5 * s)
+    -- legs
     love.graphics.setColor(dark)
-    love.graphics.polygon("fill", { x - 9 * s, feetY - 2 * s, x - 3 * s, feetY - 18 * s,
-                                    x + 3 * s, feetY - 18 * s, x + 9 * s, feetY - 2 * s })
+    love.graphics.ellipse("fill", x - 3 * s, feetY - 3 * s, 3 * s, 1.8 * s)
+    love.graphics.ellipse("fill", x + 3 * s, feetY - 3 * s, 3 * s, 1.8 * s)
     love.graphics.setColor(col)
-    love.graphics.polygon("fill", { x - 3 * s, feetY - 2 * s, x - 1 * s, feetY - 18 * s,
-                                    x + 3 * s, feetY - 18 * s, x + 4 * s, feetY - 2 * s })
+    love.graphics.rectangle("fill", x - 5 * s, feetY - 12 * s, 3.4 * s, 9 * s, 1 * s, 1 * s)
+    love.graphics.rectangle("fill", x + 1.6 * s, feetY - 12 * s, 3.4 * s, 9 * s, 1 * s, 1 * s)
+    -- arms with hands
     love.graphics.setColor(dark)
-    love.graphics.ellipse("fill", x, feetY - 18 * s, 5.5 * s, 2.2 * s)
+    love.graphics.rectangle("fill", x - 11 * s, feetY - 24 * s, 2.8 * s, 10 * s, 1 * s, 1 * s)
+    love.graphics.rectangle("fill", x + 8.2 * s, feetY - 24 * s, 2.8 * s, 10 * s, 1 * s, 1 * s)
+    love.graphics.circle("fill", x - 9.5 * s, feetY - 14 * s, 2 * s)
+    love.graphics.circle("fill", x + 9.5 * s, feetY - 14 * s, 2 * s)
+    love.graphics.setColor(dark)
+    love.graphics.polygon("fill", { x - 9 * s, feetY - 12 * s, x - 5 * s, feetY - 26 * s,
+                                    x + 5 * s, feetY - 26 * s, x + 9 * s, feetY - 12 * s })
     love.graphics.setColor(col)
-    love.graphics.circle("fill", x, feetY - 25 * s, 8 * s)
+    love.graphics.polygon("fill", { x - 5 * s, feetY - 12 * s, x - 2 * s, feetY - 26 * s,
+                                    x + 2 * s, feetY - 26 * s, x + 5 * s, feetY - 12 * s })
+    love.graphics.setColor(dark)
+    love.graphics.ellipse("fill", x, feetY - 26 * s, 5.5 * s, 2.2 * s)
+    love.graphics.setColor(col)
+    love.graphics.circle("fill", x, feetY - 34 * s, 8 * s)
     love.graphics.setColor(1, 1, 1, 0.5 * alpha)
     love.graphics.setLineWidth(1.6 * s)
-    love.graphics.arc("line", "open", x, feetY - 25 * s, 8 * s, -0.9, 0.7)
+    love.graphics.arc("line", "open", x, feetY - 34 * s, 8 * s, -0.9, 0.7)
     love.graphics.setLineWidth(1)
     love.graphics.setColor(1, 1, 1, 0.55 * alpha)
-    love.graphics.circle("fill", x - 2 * s, feetY - 27 * s, 1.8 * s)
+    love.graphics.circle("fill", x - 2 * s, feetY - 36 * s, 1.8 * s)
 end
 
 function M.switchSelect(d)
@@ -145,47 +165,161 @@ function M.clickSelect(x, y)
     elseif hit(M.selBack) then G.menuScreen, G.menuIdx = "modes", 1 end
 end
 
+function M.clickPathChoice(x, y)
+    local function hit(r) return r and x >= r.x and x <= r.x + r.w
+        and y >= r.y and y <= r.y + r.h end
+    if M.pathChoiceBtns then
+        for _, btn in ipairs(M.pathChoiceBtns) do
+            if hit(btn) then
+                M.confirmPathChoice(btn.type)
+                return
+            end
+        end
+    end
+    if hit(M.pathChoiceBack) then
+        G.menuScreen, G.menuIdx = "main", 1
+    end
+end
+
+function M.confirmPathChoice(pathType)
+    G.runPathChoice = pathType -- "normal" or "elite"
+    G.menuScreen = "game" -- will be handled by nextLevel
+    -- Continue to next level with chosen path
+    M.nextLevel()
+end
+
 function M.drawSelect(time)
     local C = G.C
     local cx = G.W / 2
     local n = #G.roster
     local def = G.roster[G.menuIdx]
     if not def then return end
-    -- carousel animation: old slides out, new slides in (ease-out)
-    local k = math.min(1, math.max(0, (time - M.selT0) / 0.28))
-    local e = 1 - (1 - k) * (1 - k) * (1 - k)
-    local showing = (k >= 1 or not M.selPrev)
-    local items = {}
-    if showing then items[1] = { def = def, off = 0, a = 1 }
-    else
-        local prev = G.roster[M.selPrev]
-        if prev then items[#items + 1] = { def = prev, off = -M.selDir * e * 320, a = 1 - k } end
-        items[#items + 1] = { def = def, off = M.selDir * (1 - e) * 320, a = math.min(1, 0.3 + k) }
-    end
-    -- universal scale for select screen
-    local SEL_SCALE = 3.2
 
+    -- circle pool: selected always center large, others on receding ring behind
+    local k = math.min(1, math.max(0, (time - M.selT0) / 0.34))
+    local e = 1 - (1 - k) * (1 - k) * (1 - k)
     local my = G.H * 0.40
-    for _, it in ipairs(items) do
-        local px = cx + it.off
-        -- medallion: team-glow outer ring, dark sticker ring, deep fill
-        local R = 85 * SEL_SCALE / 2.4
-        love.graphics.setColor(withAlpha(it.def.color, 0.45 * it.a))
-        love.graphics.setLineWidth(6)
-        love.graphics.circle("line", px, my, R + 3)
-        love.graphics.setColor(withAlpha(C.ring, it.a))
-        love.graphics.setLineWidth(4)
-        love.graphics.circle("line", px, my, R)
-        love.graphics.setColor(withAlpha(C.barBg, it.a))
-        love.graphics.circle("fill", px, my, R - 3)
-        love.graphics.setLineWidth(1)
-        if it.def.kind == "knight" then
-            Knight.drawBust(px, my + 50 * SEL_SCALE / 2.4, it.def.color, it.def.dark, SEL_SCALE)
-            love.graphics.setColor(1, 1, 1, it.a)
-        else
-            drawBust(it.def, px, my + 50 * SEL_SCALE / 2.4, SEL_SCALE, it.a)
+    local BIG_R, BIG_S = 110, 4.0
+    local SMALL_R, SMALL_S = 62, 1.85
+    local ring_rx, ring_ry = 220, 68  -- ellipse radius for background chars
+
+    -- compute old selected position during transition
+    local oldDef = (k < 1 and M.selPrev) and G.roster[M.selPrev] or nil
+    local oldAng = 0
+    if oldDef then
+        oldAng = M.selDir * (1 - e) * (2 * math.pi / n)
+    end
+
+    -- collect non-selected characters on the ring (sorted back->front)
+    local ringItems = {}
+    for i = 1, n do
+        if i ~= G.menuIdx then
+            local ang = (i - G.menuIdx) * (2 * math.pi / n) + oldAng
+            local ca, sa = math.cos(ang), math.sin(ang)
+            local px = cx + ca * ring_rx
+            local py = my + sa * ring_ry * 0.6
+            local depth = 0.5 + 0.5 * sa  -- 0..1 (front = 1)
+            local R = SMALL_R
+            local scale = SMALL_S
+            local a = 0.26 + 0.30 * depth
+            table.insert(ringItems, { idx = i, def = G.roster[i], px = px, py = py, depth = depth, R = R, scale = scale, a = a })
         end
     end
+    table.sort(ringItems, function(a, b) return a.depth < b.depth end)
+
+    -- draw background ring items (back to front)
+    for _, it in ipairs(ringItems) do
+        local R = it.R
+        local scale = it.scale
+        local a = it.a
+        -- pedestal oval
+        love.graphics.setColor(0, 0, 0, 0.12 * a)
+        love.graphics.ellipse("fill", it.px, it.py + R * 0.85, R * 0.85, R * 0.24)
+        -- medallion
+        love.graphics.setColor(withAlpha(it.def.color, 0.38 * a))
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", it.px, it.py, R + 2)
+        love.graphics.setColor(withAlpha(C.ring, a))
+        love.graphics.setLineWidth(1)
+        love.graphics.circle("line", it.px, it.py, R)
+        love.graphics.setColor(withAlpha(C.barBg, a))
+        love.graphics.circle("fill", it.px, it.py, R - 2)
+        love.graphics.setLineWidth(1)
+        -- stencil clip
+        love.graphics.stencil(function() love.graphics.circle("fill", it.px, it.py, R - 2) end, "replace", 1)
+        love.graphics.setStencilTest("greater", 0)
+        local feetY = it.py + 32
+        if it.def.kind == "knight" then
+            Knight.drawBust(it.px, feetY, it.def.color, it.def.dark, scale)
+        else
+            drawBust(it.def, it.px, feetY, scale, a)
+        end
+        love.graphics.setStencilTest()
+    end
+
+    -- draw old selected sliding out (if transitioning)
+    if oldDef then
+        local ca = math.cos(oldAng)
+        local sa = math.sin(oldAng)
+        local outPx = cx + ca * ring_rx
+        local outPy = my + sa * ring_ry * 0.6
+        local outR = SMALL_R
+        local outScale = SMALL_S
+        local outA = 1 - e
+        local outDepth = 0.35 + 0.35 * sa
+        love.graphics.setColor(0, 0, 0, 0.12 * outA)
+        love.graphics.ellipse("fill", outPx, outPy + outR * 0.85, outR * 0.85, outR * 0.24)
+        love.graphics.setColor(withAlpha(oldDef.color, 0.38 * outA))
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", outPx, outPy, outR + 2)
+        love.graphics.setColor(withAlpha(C.ring, outA))
+        love.graphics.setLineWidth(1)
+        love.graphics.circle("line", outPx, outPy, outR)
+        love.graphics.setColor(withAlpha(C.barBg, outA))
+        love.graphics.circle("fill", outPx, outPy, outR - 2)
+        love.graphics.setLineWidth(1)
+        love.graphics.stencil(function() love.graphics.circle("fill", outPx, outPy, outR - 2) end, "replace", 1)
+        love.graphics.setStencilTest("greater", 0)
+        local feetY = outPy + 32
+        if oldDef.kind == "knight" then
+            Knight.drawBust(outPx, feetY, oldDef.color, oldDef.dark, outScale)
+        else
+            drawBust(oldDef, outPx, feetY, outScale, outA)
+        end
+        love.graphics.setStencilTest()
+    end
+
+    -- selected character always centered, drawn last
+    do
+        local R = BIG_R
+        local scale = BIG_S
+        local a = 1
+        love.graphics.setColor(0, 0, 0, 0.22 * a)
+        love.graphics.ellipse("fill", cx, my + R * 0.85, R * 0.95, R * 0.28)
+        love.graphics.setColor(withAlpha(def.color, 0.48 * a))
+        love.graphics.setLineWidth(6)
+        love.graphics.circle("line", cx, my, R + 3)
+        love.graphics.setColor(C.ring)
+        love.graphics.setLineWidth(4)
+        love.graphics.circle("line", cx, my, R)
+        love.graphics.setColor(C.barBg)
+        love.graphics.circle("fill", cx, my, R - 3)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(def.color[1], def.color[2], def.color[3], 0.16)
+        love.graphics.circle("fill", cx, my, R + 12)
+        love.graphics.stencil(function() love.graphics.circle("fill", cx, my, R - 3) end, "replace", 1)
+        love.graphics.setStencilTest("greater", 0)
+        local feetY = my + 72
+        if def.kind == "knight" then
+            Knight.drawBust(cx, feetY, def.color, def.dark, scale)
+        else
+            drawBust(def, cx, feetY, scale, a)
+        end
+        love.graphics.setStencilTest()
+        love.graphics.setColor(C.select[1], C.select[2], C.select[3], 0.95)
+        love.graphics.circle("fill", cx, my + R + 16, 3)
+    end
+
     -- arrows
     local mx, myy = love.mouse.getPosition()
     love.graphics.setFont(G.fontTitle)
@@ -261,6 +395,77 @@ function M.drawSelect(time)
         0, G.H - 60, G.W, "center")
 end
 
+-- Path choice screen: after level 2, choose Normal or Elite for level 3
+function M.drawPathChoice(time)
+    local C = G.C
+    local cx = G.W / 2
+    local my = G.H * 0.40
+
+    -- Description
+    love.graphics.setFont(G.fontBody)
+    love.graphics.setColor(C.ink)
+    love.graphics.printf("You have cleared 2 levels.", cx - 300, my - 60, 600, "center")
+    love.graphics.setFont(G.fontSmall)
+    love.graphics.setColor(C.muted)
+    love.graphics.printf("Choose the difficulty for Level 3:", cx - 300, my - 20, 600, "center")
+    love.graphics.setColor(C.accent)
+    love.graphics.printf("Level 4 follows your choice. Level 5 is always a BOSS.", cx - 300, my + 10, 600, "center")
+
+    -- Options with descriptions
+    local options = {
+        { label = "NORMAL PATH", desc = "Standard enemies, varied terrain", color = C.accent },
+        { label = "ELITE PATH", desc = "Tougher enemies, complex maps", color = C.floatDmg },
+    }
+
+    local optY = my + 50
+    local optGap = 80
+    M.pathChoiceBtns = {}
+    M.pathChoiceDesc = {}
+
+    for i, opt in ipairs(options) do
+        local iy = optY + (i - 1) * optGap
+        local sel = (i == G.menuIdx)
+        local iw, ih = 400, 56
+        local ix = cx - iw / 2
+
+        -- Background
+        love.graphics.setColor(sel and {opt.color[1], opt.color[2], opt.color[3], 0.18} or C.panel)
+        love.graphics.rectangle("fill", ix, iy, iw, ih, 8, 8)
+        love.graphics.setColor(sel and opt.color or C.panelLn)
+        love.graphics.rectangle("line", ix, iy, iw, ih, 8, 8)
+
+        -- Label
+        love.graphics.setFont(G.fontBody)
+        love.graphics.setColor(sel and C.selInk or C.ink)
+        love.graphics.printf(opt.label, ix, iy + 8, iw, "center")
+
+        -- Description
+        love.graphics.setFont(G.fontSmall)
+        love.graphics.setColor(C.muted)
+        love.graphics.printf(opt.desc, ix + 20, iy + 30, iw - 40, "center")
+
+        -- Store button rect for click handling
+        M.pathChoiceBtns[i] = { x = ix, y = iy, w = iw, h = ih, type = i == 1 and "normal" or "elite" }
+    end
+
+    -- Back button
+    local by = optY + #options * optGap + 20
+    M.pathChoiceBack = { x = cx - 60, y = by, w = 120, h = 30 }
+    local mx, myy = love.mouse.getPosition()
+    local hot = mx >= M.pathChoiceBack.x and mx <= M.pathChoiceBack.x + M.pathChoiceBack.w
+        and myy >= M.pathChoiceBack.y and myy <= M.pathChoiceBack.y + M.pathChoiceBack.h
+    love.graphics.setColor(hot and C.select or C.muted)
+    love.graphics.rectangle(hot and "fill" or "line", M.pathChoiceBack.x, M.pathChoiceBack.y, M.pathChoiceBack.w, M.pathChoiceBack.h, 4, 4)
+    love.graphics.setColor(hot and C.panel or C.selInk)
+    love.graphics.setFont(G.fontBody)
+    love.graphics.printf("BACK", M.pathChoiceBack.x, M.pathChoiceBack.y + 6, M.pathChoiceBack.w, "center")
+
+    -- Hint
+    love.graphics.setFont(G.fontSmall)
+    love.graphics.setColor(C.muted)
+    love.graphics.printf("UP/DOWN + ENTER  /  CLICK  /  ESC", 0, G.H - 60, G.W, "center")
+end
+
 function M.hit(x, y)
     local items = M.items()
     local cx = G.W / 2
@@ -274,31 +479,92 @@ function M.hit(x, y)
     return nil
 end
 
-function M.startRun(idx, size)
+function M.startRun(idx)
     G.gameMode = "run"
-    size = size or 10
-    Board.generateMap(1, size)
+    G.runLevel = 1
+
+    -- Load first level from forest/normal pool
+    local LevelSelector = require("systems.level_selector")
+    local LevelLoader = require("systems.level_loader")
+    local EncounterSelector = require("systems.encounter_selector")
+    local EncounterLoader = require("systems.encounter_loader")
+    local Board = require("board")
+    local Units = require("units")
+
+    local levelId = LevelSelector.select("forest", "normal")
+    local level = LevelLoader.load("forest", "normal", levelId)
+    Board.loadLevel(level)
+
+    local encounterId = EncounterSelector.select("forest", "normal")
+    local encounter = EncounterLoader.load("forest", "normal", encounterId)
+
     -- fixed zoomed-in framing: big boards pull back, standard sits close
     if (G.GRID or 10) >= 15 then G.zoom, G.zoomTarget = 1.5, 1.5
     else G.zoom, G.zoomTarget = 2.1, 2.1 end
     G.camX, G.camY = 0, 0
+
+    -- Spawn player at first player spawn
+    local playerSpawn = G.playerSpawns[1]
     G.units = { Units.spawnUnit(G.roster[idx]) }
-    G.units[1].gx, G.units[1].gy = G.spawnTile[1], G.spawnTile[2]
-    G.units[1].px, G.units[1].py = G.spawnTile[1], G.spawnTile[2]
-    G.units[1].fx, G.units[1].fy = G.spawnTile[1], G.spawnTile[2]
+    G.units[1].gx, G.units[1].gy = playerSpawn.x, playerSpawn.y
+    G.units[1].px, G.units[1].py = playerSpawn.x, playerSpawn.y
+    G.units[1].fx, G.units[1].fy = playerSpawn.x, playerSpawn.y
     G.activeIdx = 1
     G.round, G.wiped = 1, false
     G.coins, G.levelKills, G.levelCoins, G.levelHp, G.win = 0, 0, 0, 0, nil
-    Units.spawnRunEnemies(2)
+
+    -- Spawn enemies from encounter
+    Units.spawnEncounterEnemies(encounter)
     Units.buildTurnOrder()
     local a = Units.active()
     if a and a.team == "enemy" then Units.enemyTurn(a) end
     G.state = "game"
-    G.pushLog("run started — " .. G.units[1].name .. " / lv1 seed " .. G.runSeed)
+    G.pushLog("run started — " .. G.units[1].name .. " / " .. levelId .. " + " .. encounterId)
 end
 
 function M.nextLevel()
-    Board.generateMap(G.runLevel + 1, G.GRID)
+    local LevelSelector = require("systems.level_selector")
+    local LevelLoader = require("systems.level_loader")
+    local EncounterSelector = require("systems.encounter_selector")
+    local EncounterLoader = require("systems.encounter_loader")
+    local Board = require("board")
+    local Units = require("units")
+
+    G.runLevel = G.runLevel + 1
+
+    -- Determine level type based on runLevel and path choice
+    local levelType = "normal"
+    local encounterType = "normal"
+
+    if G.runLevel == 3 then
+        -- After level 2, show path choice
+        if not G.runPathChoice then
+            G.menuScreen = "path_choice"
+            G.menuIdx = 1
+            G.state = "menu"
+            G.win = nil
+            G.pushLog("Choose your path for Level 3...")
+            return
+        end
+        levelType = G.runPathChoice
+        encounterType = G.runPathChoice
+    elseif G.runLevel == 4 then
+        -- Level 4 uses the same path choice
+        levelType = G.runPathChoice or "normal"
+        encounterType = G.runPathChoice or "normal"
+    elseif G.runLevel >= 5 then
+        -- Level 5+ always boss
+        levelType = "boss"
+        encounterType = "boss"
+    end
+
+    local levelId = LevelSelector.select("forest", levelType)
+    local level = LevelLoader.load("forest", levelType, levelId)
+    Board.loadLevel(level)
+
+    local encounterId = EncounterSelector.select("forest", encounterType)
+    local encounter = EncounterLoader.load("forest", encounterType, encounterId)
+
     -- fresh framing for the new grid (transition zoomed in close)
     if (G.GRID or 10) >= 15 then G.zoom, G.zoomTarget = 1.5, 1.5
     else G.zoom, G.zoomTarget = 2.1, 2.1 end
@@ -309,16 +575,17 @@ function M.nextLevel()
     Units.clearEnemies()
     local u = G.units[1]
     u.map = "over"
-    u.gx, u.gy = G.spawnTile[1], G.spawnTile[2]
+    local playerSpawn = G.playerSpawns[1]
+    u.gx, u.gy = playerSpawn.x, playerSpawn.y
     u.px, u.py, u.fx, u.fy = u.gx, u.gy, u.gx, u.gy
     u.path, u.t = {}, 0
     u.moved, u.attacked, u.acted = false, false, false
     u.hp, u.mana = u.maxHP, u.maxMana -- descend fully restores the party
     G.round = 1
     G.levelKills, G.levelCoins, G.levelHp = 0, 0, 0
-    Units.spawnRunEnemies(2)
+    Units.spawnEncounterEnemies(encounter)
     Units.buildTurnOrder()
-    G.pushLog("LEVEL " .. G.runLevel .. " — seed " .. G.runSeed .. " — party restored")
+    G.pushLog("LEVEL " .. G.runLevel .. " — " .. levelId .. " + " .. encounterId .. " — party restored")
 end
 
 -- Win flow: "zoom" (slow cinematic push onto the hero: impact flash,
@@ -329,6 +596,7 @@ M.WIN_DUR = 2.6
 
 function M.beginWin()
     if G.win then return end
+    Units.grantRoundReward()
     local hero = G.units[1]
     G.win = { t = 0, dur = M.WIN_DUR, phase = "zoom", level = G.runLevel,
         hero = hero and hero.id or nil,
@@ -380,13 +648,13 @@ function M.updateWin(dt)
 end
 
 function M.checkClear()
-    -- win = clear all enemies on the overworld -> transition to shop, then next round.
+    -- win = clear all enemies -> zoom -> rewards -> upgrade -> shop -> next level
     if G.state ~= "game" or G.gameMode ~= "run" then return end
     if G.win then return end
     for _, e in ipairs(G.units) do
         if e.team == "enemy" and e.hp > 0 then return end
     end
-    M.enterShop()
+    M.beginWin()
 end
 
 function M.checkFinish(u)
@@ -395,14 +663,6 @@ end
 
 -- ---------- shop phase (between rounds) ----------
 local Gnome = require("assets.units.gnome")
-
--- Shop item definitions (placeholder - items added in next phase)
-local SHOP_ITEMS = {
-    { id = "hp_up", name = "VITALITY ELIXIR", desc = "+4 Max HP", cost = 15, icon = "♥" },
-    { id = "mp_up", name = "MANA TONIC", desc = "+3 Max MP", cost = 12, icon = "◆" },
-    { id = "str_up", name = "STRENGTH TONIC", desc = "+1 STR", cost = 20, icon = "⚔" },
-    { id = "dex_up", name = "AGILITY DRAUGHT", desc = "+1 DEX", cost = 20, icon = "⚡" },
-}
 
 function M.enterShop()
     G.phase = "shop"
@@ -450,17 +710,13 @@ function M.enterShop()
     -- camera framing
     G.zoom, G.zoomTarget = 2.1, 2.1
     G.camX, G.camY = 0, 0
-    -- shop items
-    G.shop.items = SHOP_ITEMS
-    G.shop.selected = 1
-    G.shop.buyBtns = {}
+    G.shop.items = {}
     G.shop.leaveBtn = nil
     G.pushLog("Welcome to Grizzle's Emporium!")
 end
 
 function M.leaveShop()
     G.phase = "play"
-    -- generate next level
     M.nextLevel()
 end
 
@@ -468,57 +724,26 @@ function M.drawShop(time)
     local C = G.C
     Render.drawBackdrop(time)
     Render.drawBoard(time)
-    -- shopkeeper
     if G.shop.keeper then Gnome.drawGnome(G.shop.keeper, time, G, Board, C) end
-    -- hero
     local hero = G.units[1]
     if hero then
         if hero.kind == "knight" then Knight.drawKnight(hero, time, G, Board, C)
         else Render.drawPawn(hero, time) end
     end
-    -- UI overlay
+    -- title
     local cx = G.W / 2
-    -- title bar
     love.graphics.setFont(G.fontTitle)
     love.graphics.setColor(C.ink)
     love.graphics.printf("GRIZZLE'S EMPORIUM", 0, 20, G.W, "center")
     love.graphics.setColor(C.select)
     love.graphics.rectangle("fill", cx - 100, 52, 200, 2)
-    -- coins
-    love.graphics.setFont(G.fontBody)
-    love.graphics.setColor(C.coin)
-    love.graphics.printf("COINS: " .. (G.coins or 0) .. "c", 0, 60, G.W, "center")
-    -- item list
-    local startY = 110
-    for i, item in ipairs(G.shop.items) do
-        local sel = (i == G.shop.selected)
-        local iy = startY + (i - 1) * 50
-        local iw, ih = 500, 42
-        local ix = cx - iw / 2
-        -- background
-        love.graphics.setColor(sel and {C.select[1], C.select[2], C.select[3], 0.18} or C.panel)
-        love.graphics.rectangle("fill", ix, iy, iw, ih, 6, 6)
-        love.graphics.setColor(sel and C.select or C.panelLn)
-        love.graphics.rectangle("line", ix, iy, iw, ih, 6, 6)
-        -- icon
-        love.graphics.setFont(G.fontTitle)
-        love.graphics.setColor(C.coin)
-        love.graphics.print(item.icon, ix + 16, iy + 4)
-        -- name + cost
-        love.graphics.setFont(G.fontBody)
-        love.graphics.setColor(sel and C.selInk or C.ink)
-        love.graphics.print(item.name .. "  —  " .. item.cost .. "c", ix + 60, iy + 4)
-        -- desc
-        love.graphics.setFont(G.fontSmall)
-        love.graphics.setColor(C.muted)
-        love.graphics.print(item.desc, ix + 60, iy + 22)
-        -- buy button rect
-        G.shop.buyBtns[i] = { x = ix + iw - 110, y = iy + 6, w = 96, h = 30, item = item }
-    end
+    love.graphics.setFont(G.fontSmall)
+    love.graphics.setColor(C.muted)
+    love.graphics.printf("WASD / CLICK move  •  ESC leave", 0, 60, G.W, "center")
     -- leave button
     local lw, lh = 200, 40
     local lx = cx - lw / 2
-    local ly = startY + #G.shop.items * 50 + 20
+    local ly = G.H - 80
     G.shop.leaveBtn = { x = lx, y = ly, w = lw, h = lh }
     local mx, my = love.mouse.getPosition()
     local hot = mx >= lx and mx <= lx + lw and my >= ly and my <= ly + lh
@@ -527,109 +752,74 @@ function M.drawShop(time)
     love.graphics.setColor(hot and C.panel or C.selInk)
     love.graphics.setFont(G.fontBody)
     love.graphics.printf("LEAVE SHOP", lx, ly + 10, lw, "center")
-    -- hint
-    love.graphics.setFont(G.fontSmall)
-    love.graphics.setColor(C.muted)
-    love.graphics.printf("WASD / CLICK move  •  ENTER / CLICK buy  •  ESC leave", 0, G.H - 40, G.W, "center")
 end
 
 function M.updateShop(dt)
-    local hero = G.units[1]
-    if not hero then return end
-    -- simple WASD movement in shop (no turn system)
-    local moved = false
-    if love.keyboard.isDown("w") or love.keyboard.isDown("up") then
-        M.tryShopMove(hero, 0, -1); moved = true
-    elseif love.keyboard.isDown("s") or love.keyboard.isDown("down") then
-        M.tryShopMove(hero, 0, 1); moved = true
-    elseif love.keyboard.isDown("a") or love.keyboard.isDown("left") then
-        M.tryShopMove(hero, -1, 0); moved = true
-    elseif love.keyboard.isDown("d") or love.keyboard.isDown("right") then
-        M.tryShopMove(hero, 1, 0); moved = true
-    end
-    if moved then
-        hero.path = { {hero.gx, hero.gy} }
-        hero.t = 0
-        hero.fx, hero.fy = hero.gx, hero.gy
-    end
-    -- update glide
-    Units.updateGlide(dt, function(u) end)
+    Units.updateGlide(dt, function(u)
+        -- shop: never consume move, keep unlimited
+        if G.phase == "shop" and u == G.units[1] then u.moved, u.attacked, u.acted = false, false, false end
+    end)
+    -- squash decay + lift/hover (main.lua skips Input.updateAmbient in shop)
+    for id, v in pairs(G.squash) do G.squash[id] = math.max(0, v - dt * 6) end
+    for y = 1, G.GRID do for x = 1, G.GRID do
+        local k = x .. "," .. y
+        local target = (G.hover and G.hover[1]==x and G.hover[2]==y) and 10 or 0
+        local cur = G.lift[k] or 0
+        cur = cur + (target - cur) * math.min(1, dt*12)
+        if math.abs(cur-target) < 0.1 then cur = target end
+        G.lift[k] = cur
+    end end
+    -- hover pick + queries
+    local mx, my = love.mouse.getPosition()
+    local tx, ty = Board.pickTile(mx, my)
+    G.hover = (tx~=nil) and {tx,ty} or nil
+    Units.updateQueries()
 end
 
 function M.tryShopMove(unit, dx, dy)
+    if #unit.path > 0 then return end
     local nx, ny = unit.gx + dx, unit.gy + dy
     if nx < 1 or ny < 1 or nx > G.GRID or ny > G.GRID then return end
     if Board.isBlocked(nx, ny) then return end
     if G.shop.keeper and G.shop.keeper.gx == nx and G.shop.keeper.gy == ny then return end
-    unit.gx, unit.gy = nx, ny
+    -- unlimited moves: temporarily clear gating flags
+    local om, oa, oc = unit.moved, unit.attacked, unit.acted
+    unit.moved, unit.attacked, unit.acted = false, false, false
+    Units.orderMove(unit, nx, ny)
+    -- keep unlimited: clear flags again after queuing (updateGlide will not set moved for shop)
+    if #unit.path > 0 then unit.moved, unit.attacked, unit.acted = false, false, false
+    else unit.moved, unit.attacked, unit.acted = om, oa, oc end
 end
 
 function M.shopMousepressed(x, y, button)
     if button ~= 1 then return end
-    -- buy buttons
-    for _, btn in ipairs(G.shop.buyBtns) do
-        if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
-            M.buyItem(btn.item)
-            return
-        end
-    end
-    -- leave button
     if G.shop.leaveBtn and x >= G.shop.leaveBtn.x and x <= G.shop.leaveBtn.x + G.shop.leaveBtn.w
         and y >= G.shop.leaveBtn.y and y <= G.shop.leaveBtn.y + G.shop.leaveBtn.h then
         M.leaveShop()
         return
     end
-    -- click to move (simple pathfinding not needed in small shop)
     local gx, gy = Board.pickTile(x, y)
     if gx and gy and not Board.isBlocked(gx, gy) then
         local hero = G.units[1]
-        if hero and (gx ~= hero.gx or gy ~= hero.gy) then
-            -- simple 1-step for now
-            if math.abs(gx - hero.gx) + math.abs(gy - hero.gy) == 1 then
-                M.tryShopMove(hero, gx - hero.gx, gy - hero.gy)
-                hero.path = { {hero.gx, hero.gy} }
-                hero.t = 0
-                hero.fx, hero.fy = hero.gx, hero.gy
-            end
+        if hero and #hero.path == 0 then
+            if G.shop.keeper and G.shop.keeper.gx == gx and G.shop.keeper.gy == gy then return end
+            local om, oa, oc = hero.moved, hero.attacked, hero.acted
+            hero.moved, hero.attacked, hero.acted = false, false, false
+            Units.orderMove(hero, gx, gy)
+            if #hero.path > 0 then hero.moved, hero.attacked, hero.acted = false, false, false
+            else hero.moved, hero.attacked, hero.acted = om, oa, oc end
         end
     end
 end
 
 function M.shopKeypressed(key)
     if key == "escape" then M.leaveShop(); return end
-    if key == "return" or key == "space" then
-        local item = G.shop.items[G.shop.selected]
-        if item then M.buyItem(item) end
-        return
-    end
-    if key == "up" or key == "w" then
-        G.shop.selected = math.max(1, G.shop.selected - 1)
-    elseif key == "down" or key == "s" then
-        G.shop.selected = math.min(#G.shop.items, G.shop.selected + 1)
-    end
-end
-
-function M.buyItem(item)
-    if (G.coins or 0) < item.cost then
-        G.pushLog("Not enough coins!")
-        return
-    end
-    G.coins = G.coins - item.cost
     local hero = G.units[1]
-    if item.id == "hp_up" then
-        hero.maxHP = hero.maxHP + 4
-        hero.hp = hero.maxHP
-        hero.stats.vigor = (hero.stats.vigor or 0) + 1
-    elseif item.id == "mp_up" then
-        hero.maxMana = hero.maxMana + 3
-        hero.mana = hero.maxMana
-        hero.stats.charisma = (hero.stats.charisma or 0) + 1
-    elseif item.id == "str_up" then
-        hero.stats.strength = (hero.stats.strength or 0) + 1
-    elseif item.id == "dex_up" then
-        hero.stats.dexterity = (hero.stats.dexterity or 0) + 1
-    end
-    G.pushLog("Bought " .. item.name .. "!")
+    if not hero or #hero.path > 0 then return end
+    if key == "w" then M.tryShopMove(hero, -1, 0)
+    elseif key == "s" then M.tryShopMove(hero, 1, 0)
+    elseif key == "a" then M.tryShopMove(hero, 0, -1)
+    elseif key == "d" then M.tryShopMove(hero, 0, 1) end
 end
 
 function M.applyMode(m)
@@ -683,6 +873,16 @@ function M.keypressed(key)
         elseif key == "right" or key == "d" or key == "down" then M.switchSelect(1)
         elseif key == "return" or key == "space" then M.confirmSelect()
         elseif key == "escape" then G.menuScreen, G.menuIdx = "modes", 1 end
+        return true
+    end
+    if G.menuScreen == "path_choice" then
+        local n = #M.items()
+        if key == "up" or key == "w" then G.menuIdx = ((G.menuIdx - 2) % n) + 1
+        elseif key == "down" or key == "s" then G.menuIdx = (G.menuIdx % n) + 1
+        elseif key == "return" or key == "space" then
+            if G.menuIdx <= 2 then M.confirmPathChoice(G.menuIdx == 1 and "normal" or "elite")
+            else G.menuScreen, G.menuIdx = "main", 1 end
+        elseif key == "escape" then G.menuScreen, G.menuIdx = "main", 1 end
         return true
     end
     local n = #M.items()
