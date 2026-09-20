@@ -10,12 +10,14 @@ local G = {
     BLOCK_H = 26,   -- pixel height of one block level
     LIFT_PX = 10,   -- hover lift in pixels
     STEP_TIME = 0.14, -- seconds per path step
+    AI_THINK = 0.55,  -- enemy pause before acting (readability beat)
+    AI_STRIKE = 0.45, -- enemy pause after moving, before the hit lands
     MIN_ZOOM = 0.45, MAX_ZOOM = 2.5,
 
     -- viewport / camera
     W = 1280, H = 800,
     originX = 0, originY = 0,
-    camX = 0, camY = 0, zoom = 1, zoomTarget = 1,
+    camX = 0, camY = 0, zoom = 1.8, zoomTarget = 1.8,
 
     -- board
     heights = {}, blocked = {}, terrain = {},
@@ -31,6 +33,18 @@ local G = {
 
     -- units
     roster = {}, units = {}, activeIdx = 1,
+    turnOrder = {}, turnPos = 1, -- initiative: unit ids, speed desc
+    round = 1, wiped = false,
+    ai = nil, -- active enemy turn driver {id, phase, t}; nil = player time
+    coins = 0, -- run-wide purse (kill bounties)
+    levelKills = 0, levelCoins = 0, levelHp = 0, -- this level's rewards
+    win = nil, -- win transition {t, dur, level, kills, coins, hp} or nil
+    castMode = false, -- firebolt targeting armed
+    showStats = true, -- portrait stat block expanded
+    statsToggle = nil, -- clickable STATS arrow rect, set by render
+    floats = {}, -- floating combat text {gx,gy,txt,col,t,life}
+    arrows = {}, -- arrows in flight {fx,fy,tx,ty,t,dur} (grid coords)
+    nextBtn = nil, boltBtn = nil, -- turn-box button rects, set by render
 
     -- per-frame / fx state
     hover = nil, lift = {}, log = {},
@@ -49,12 +63,14 @@ local G = {
 
     -- palette (all LÖVE 11 colors are 0-1 floats; keep new colors here)
     C = {
-        bg       = {0.08, 0.085, 0.11},
-        glowWarm = {0.55, 0.42, 0.22, 0.07},
-        glowDeep = {0.30, 0.22, 0.14, 0.06},
-        contour  = {0.85, 0.75, 0.55, 0.05},
-        dust     = {0.90, 0.70, 0.45},
-        gridLn   = {1.00, 0.95, 0.85, 0.03},
+        bg       = {0.095, 0.100, 0.085},
+        glowWarm = {0.60, 0.48, 0.27, 0.10},
+        glowDeep = {0.34, 0.27, 0.15, 0.08},
+        glowCore = {0.72, 0.60, 0.34, 0.05},
+        contour  = {0.80, 0.71, 0.52, 0.055},
+        dust     = {0.95, 0.78, 0.50},
+        gridLn   = {0.90, 0.85, 0.70, 0.022},
+        vignette = {0.03, 0.030, 0.025},
         top      = {0.93, 0.90, 0.82},
         topEdge  = {1.00, 0.99, 0.95},
         north    = {0.66, 0.61, 0.50},
@@ -70,15 +86,29 @@ local G = {
         selInk   = {0.75, 0.92, 1.00},
         panel    = {0.07, 0.08, 0.11, 0.92},
         panelLn  = {0.36, 0.66, 0.37, 0.55},
+        barBg    = {0.04, 0.05, 0.07, 1},
         ink      = {0.92, 0.93, 0.90},
         muted    = {0.55, 0.58, 0.60},
         accent   = {0.45, 0.78, 0.46},
         shadow   = {0, 0, 0, 0.30},
+        ring     = {0.05, 0.05, 0.07},
         rim      = {1.00, 0.97, 0.88, 0.85},
         pillarHi = {0.55, 0.55, 0.60},
         grassTop = {0.65, 0.72, 0.52},
+        grassTop2= {0.57, 0.68, 0.43},
+        grassTop3= {0.71, 0.74, 0.50},
+        meadowTop= {0.60, 0.75, 0.47},
+        flowerTop= {0.67, 0.72, 0.51},
         grassBlade={0.30, 0.50, 0.26},
         grassTip = {0.45, 0.62, 0.32},
+        meadowBlade={0.27, 0.52, 0.25},
+        meadowTip = {0.48, 0.68, 0.33},
+        cloverLeaf={0.26, 0.55, 0.29},
+        bloomWhite={0.96, 0.94, 0.87},
+        bloomYellow={0.98, 0.82, 0.35},
+        bloomPink = {0.93, 0.55, 0.62},
+        seedHead  = {0.86, 0.81, 0.60},
+        mossPatch = {0.44, 0.57, 0.34},
         tallTop  = {0.55, 0.70, 0.42},
         tallInset= {0.45, 0.57, 0.34},
         tallBlade= {0.22, 0.42, 0.20},
@@ -95,6 +125,12 @@ local G = {
         shopRug  = {0.75, 0.35, 0.30},
         flagPole = {0.20, 0.18, 0.16},
         holeDark = {0.03, 0.04, 0.06},
+        floatDmg  = {1.00, 0.45, 0.40},
+        floatCrit = {1.00, 0.85, 0.30},
+        floatDodge= {0.70, 0.70, 0.75},
+        floatHeal = {0.45, 0.90, 0.50},
+        floatMana = {0.40, 0.75, 1.00},
+        coin      = {1.00, 0.84, 0.30},
     },
 }
 

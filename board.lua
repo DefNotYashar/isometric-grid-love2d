@@ -69,8 +69,10 @@ function M.inBounds(x, y) return x >= 1 and y >= 1 and x <= G.GRID and y <= G.GR
 function M.isBlocked(x, y) return G.blocked[y * 100 + x] == true end
 
 -- ---------- run terrain ----------
--- terrain[y][x]: "default" | "grass" | "tall" | "water" | "mountain"
---   | "spawn" | "finish" | "shopwall" | "shopfloor" | "shopdoor"
+-- terrain[y][x]: "default" | "grass" | "meadow" | "flower" | "tall"
+--   | "water" | "mountain" | "spawn" | "finish"
+--   | "shopwall" | "shopfloor" | "shopdoor"
+-- meadow/flower are grass-family: walkable, cost 1, no dodge.
 -- heights: 0 flat, 1 hill (walkable bump, big maps only) / shop wall, 2 blocked peak.
 -- shopwall is blocked; shopfloor/shopdoor are walkable (room interior,
 -- overworld entrance). Units carry u.map ("over" | "shop").
@@ -107,6 +109,40 @@ function M.clearBoard()
     G.map, G.maps, G.shopOver = "over", {}, nil
 end
 
+-- Free-play meadow: deterministic grass-family scatter so the classic
+-- board isn't bare. Skips pillars, spawn/finish, and the shop entrance
+-- (paint BEFORE setupFreeShop, or the door tile gets overwritten first).
+function M.paintFreeMeadow()
+    local n = G.GRID
+    local function reserved(x, y)
+        if G.blocked[y * 100 + x] then return true end
+        if G.shopOver and x == G.shopOver[1] and y == G.shopOver[2] then return true end
+        if G.spawnTile and x == G.spawnTile[1] and y == G.spawnTile[2] then return true end
+        if G.finishTile and x == G.finishTile[1] and y == G.finishTile[2] then return true end
+        return false
+    end
+    for y = 1, n do for x = 1, n do
+        if G.terrain[y][x] == "default" and not reserved(x, y) then
+            local h = math.sin(x * 12.9898 + y * 78.233) * 43758.5453
+            h = h - math.floor(h)
+            if h < 0.26 then G.terrain[y][x] = "grass"
+            elseif h < 0.34 then G.terrain[y][x] = "meadow"
+            elseif h < 0.40 then G.terrain[y][x] = "flower" end
+        end
+    end end
+    -- two dense tall thickets (fixed spots, clipped to board, never reserved)
+    for _, c in ipairs({{3, 7}, {8, 3}}) do
+        for _, d in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1}}) do
+            local x, y = c[1] + d[1], c[2] + d[2]
+            if x >= 1 and y >= 1 and x <= n and y <= n
+                and not reserved(x, y)
+                and G.terrain[y][x] ~= "water" then
+                G.terrain[y][x] = "tall"
+            end
+        end
+    end
+end
+
 -- ---------- seeded RNG (LCG Park-Miller; no global randomseed touches) ----------
 local function makeRng(seed)
     local s = (seed % 2147483646) + 1
@@ -139,12 +175,12 @@ local function walk(rng, n, sx, sy, steps, stick, paint)
 end
 
 local PROFILES = {
-    standard = { grass = 24, riverLen = 9, lakes = 0, lakeSize = 0,
-                 tallGroves = 2, tallSize = 4, mountains = 4, hills = 0,
-                 minGrass = 12, minTall = 3, minWater = 5 },
-    big      = { grass = 42, riverLen = 20, lakes = 1, lakeSize = 4,
-                 tallGroves = 3, tallSize = 5, mountains = 11, hills = 4,
-                 minGrass = 25, minTall = 8, minWater = 12 },
+    standard = { grass = 40, riverLen = 9, lakes = 0, lakeSize = 0,
+                 tallGroves = 3, tallSize = 6, mountains = 4, hills = 0,
+                 minGrass = 22, minTall = 6, minWater = 5 },
+    big      = { grass = 70, riverLen = 20, lakes = 1, lakeSize = 4,
+                 tallGroves = 5, tallSize = 6, mountains = 11, hills = 4,
+                 minGrass = 40, minTall = 12, minWater = 12 },
 }
 
 local function pathCostToFinish()
@@ -236,8 +272,11 @@ function M.switchMap(name)
     local m = G.maps[name]
     G.map = name
     G.GRID, G.heights, G.terrain, G.blocked = m.grid, m.heights, m.terrain, m.blocked
+    -- fixed zoomed-in framing follows the visible map size
+    if G.GRID >= 15 then G.zoom, G.zoomTarget = 1.3, 1.3
+    else G.zoom, G.zoomTarget = 1.8, 1.8 end
     G.hover = nil
-    G.lift, G.cachedReach, G.hoverPath, G.puffs = {}, {}, {}, {}
+    G.lift, G.cachedReach, G.hoverPath, G.puffs, G.arrows = {}, {}, {}, {}, {}
     G.camX, G.camY = 0, 0
 end
 
@@ -253,10 +292,10 @@ function M.enterShop(unit)
     local rec = G.maps and G.maps.shop
     if not rec then return end
     M.switchMap("shop")
-    G.zoom, G.zoomTarget = 1, 1
     unit.map = "shop"
+    unit.hp, unit.mana = unit.maxHP, unit.maxMana -- the shop restores you
     placeUnit(unit, rec.spawn[1], rec.spawn[2])
-    G.pushLog(unit.name .. " enters the shop")
+    G.pushLog(unit.name .. " enters the shop — fully restored")
 end
 
 -- Step on the room door -> appear back on the entrance tile (or a free
@@ -293,6 +332,7 @@ end
 -- Step hook (called from the glide onStep chain): standing on a door
 -- tile teleports, either direction. Entering/exiting clears the path.
 function M.checkShop(u)
+    if u.team == "enemy" then return end -- heroes only use doors
     local t = G.terrain[u.gy] and G.terrain[u.gy][u.gx]
     if t ~= "shopdoor" then return end
     if G.map == "shop" then
@@ -348,9 +388,9 @@ local function buildAttempt(seed, level, size, prof)
 
     -- grass: momentum walkers sharing a tile budget (natural clusters)
     local grassLeft = prof.grass
-    local walkers = 3
+    local walkers = 4
     for _ = 1, walkers do
-        local steps = math.floor(prof.grass / walkers) + 2
+        local steps = math.floor(prof.grass / walkers) + 4
         walk(rng, n, rng.int(1, n), rng.int(1, n), steps, 0.7, function(x, y)
             if grassLeft > 0 and G.terrain[y][x] == "default" and not isEndpoint(x, y) then
                 G.terrain[y][x] = "grass"
@@ -358,6 +398,16 @@ local function buildAttempt(seed, level, size, prof)
             end
         end)
     end
+
+    -- meadow/flower diversification: re-roll some grass tiles into lush
+    -- (meadow) and blossom (flower) variants. Same gameplay as grass.
+    for y = 1, n do for x = 1, n do
+        if G.terrain[y][x] == "grass" and not isEndpoint(x, y) then
+            local r = rng.f()
+            if r < 0.22 then G.terrain[y][x] = "flower"
+            elseif r < 0.48 then G.terrain[y][x] = "meadow" end
+        end
+    end end
 
     -- river: edge-to-edge momentum walk, width 1, forces a cost-2 crossing
     local edge = rng.int(1, 2) -- 1: top->bottom, 2: left->right
@@ -397,10 +447,11 @@ local function buildAttempt(seed, level, size, prof)
         end
     end
 
-    -- tall groves: grow inside grass only (dense dodge thickets, not speckle)
+    -- tall groves: grow inside grass-family only (dense dodge thickets)
+    local function isGrassFam(t) return t == "grass" or t == "meadow" or t == "flower" end
     local grassCells = {}
     for y = 1, n do for x = 1, n do
-        if G.terrain[y][x] == "grass" then grassCells[#grassCells + 1] = {x, y} end
+        if isGrassFam(G.terrain[y][x]) then grassCells[#grassCells + 1] = {x, y} end
     end end
     for g = 1, prof.tallGroves do
         if #grassCells == 0 then break end
@@ -412,7 +463,7 @@ local function buildAttempt(seed, level, size, prof)
         while #q > 0 and grown < prof.tallSize do
             local c = table.remove(q, 1)
             local x, y = c[1], c[2]
-            if G.terrain[y][x] == "grass" then
+            if isGrassFam(G.terrain[y][x]) then
                 G.terrain[y][x] = "tall"
                 grown = grown + 1
             end
@@ -420,7 +471,7 @@ local function buildAttempt(seed, level, size, prof)
                 local nx, ny = x + d[1], y + d[2]
                 local k = ny * 100 + nx
                 if nx >= 1 and ny >= 1 and nx <= n and ny <= n and not seen[k]
-                    and G.terrain[ny][nx] == "grass" then
+                    and isGrassFam(G.terrain[ny][nx]) then
                     seen[k] = true
                     q[#q + 1] = {nx, ny}
                 end
@@ -504,8 +555,8 @@ local function buildAttempt(seed, level, size, prof)
     for y = 1, n do for x = 1, n do
         if G.terrain[y][x] == "water" then G.blocked[y * 100 + x] = nil end
     end end
-    G.terrain[spawn[2]][spawn[1]] = "spawn"
-    G.terrain[finish[2]][finish[1]] = "finish"
+    G.terrain[spawn[2]][spawn[1]] = "default"
+    G.terrain[finish[2]][finish[1]] = "default"
     G.heights[finish[2]][finish[1]] = 0
     G.blocked[finish[2] * 100 + finish[1]] = nil
 
@@ -514,7 +565,7 @@ local function buildAttempt(seed, level, size, prof)
     local doors = {}
     for y = 1, n do for x = 1, n do
         local t = G.terrain[y][x]
-        if (t == "default" or t == "grass")
+        if (t == "default" or t == "grass" or t == "meadow" or t == "flower")
             and not (x == spawn[1] and y == spawn[2])
             and not (x == finish[1] and y == finish[2]) then
             doors[#doors + 1] = {x, y}
@@ -535,7 +586,7 @@ local function buildAttempt(seed, level, size, prof)
     for y = 1, n do for x = 1, n do
         local t = G.terrain[y][x]
         if t == "water" then cw = cw + 1
-        elseif t == "grass" then cg = cg + 1
+        elseif t == "grass" or t == "meadow" or t == "flower" then cg = cg + 1
         elseif t == "tall" then ct = ct + 1 end
     end end
     -- tall lives inside grass budget: count the meadow as a whole

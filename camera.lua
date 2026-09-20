@@ -5,16 +5,16 @@ local M = {}
 function M.initWindow()
     love.window.setMode(G.W, G.H, { resizable = true, vsync = 1 })
     G.originX = G.W / 2
-    G.originY = G.H / 2 - G.GRID * G.HALF_H + 24
+    G.originY = G.H / 2 - G.GRID * G.HALF_H * G.zoom + 24
 end
 
 function M.syncViewport()
     local w, h = love.graphics.getDimensions()
-    if w ~= G.W or h ~= G.H then
-        G.W, G.H = w, h
-        G.originX = G.W / 2
-        G.originY = G.H / 2 - G.GRID * G.HALF_H + 24
-    end
+    if w ~= G.W or h ~= G.H then G.W, G.H = w, h end
+    -- recentered every frame (cheap): the board stays centered as the
+    -- fixed zoom steps up and through the win-cinematic push-in.
+    G.originX = G.W / 2
+    G.originY = G.H / 2 - G.GRID * G.HALF_H * G.zoom + 24
 end
 
 -- Keep the board findable: the camera is clamped every frame (and after
@@ -52,6 +52,6 @@ function M.pollPanKeys(dt)
     M.clampCamera()
 end
 
-function M.reset() G.camX, G.camY, G.zoom, G.zoomTarget = 0, 0, 1, 1 end
+function M.reset() G.camX, G.camY = 0, 0 end
 
 return M

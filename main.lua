@@ -20,6 +20,7 @@ function love.load()
     G.fontBody  = love.graphics.newFont("assets/fonts/JetBrainsMonoNerdFont-Regular.ttf", 14)
     G.fontSmall = love.graphics.newFont("assets/fonts/JetBrainsMonoNerdFont-Regular.ttf", 11)
     G.initBoard()
+    Board.paintFreeMeadow()
     G.roster = Units.defaultRoster()
     Units.spawnAll()
     for i = 1, 40 do
@@ -38,10 +39,13 @@ function love.update(dt)
     Camera.syncViewport() -- tiling WMs resize without resize events; poll every frame
     Camera.updateZoom(dt)
     G.selAnim = math.min(1, G.selAnim + dt * 6)
-    Camera.pollPanKeys(dt)
+    if not G.win then Camera.pollPanKeys(dt) end -- cinematic drives the camera
     Input.updatePick()
     Input.updateAmbient(dt)
-    Units.updateGlide(dt, Menu.checkFinish)
+    if G.state ~= "over" then Units.updateGlide(dt, Menu.checkFinish) end
+    Units.updateAI(dt) -- gated internally on game state; drives queued enemy beats
+    if G.win then Menu.updateWin(dt) -- win cinematic: zoom on hero, then swap
+    else Menu.checkClear() end -- kills land via attacks, not steps: poll win
 end
 
 function love.draw()
@@ -50,10 +54,16 @@ function love.draw()
         Menu.draw(time)
         return
     end
+    if G.win and G.win.phase == "upgrade" then
+        Render.drawUpgrade(time)
+        return
+    end
     Render.drawBackdrop(time)
     Render.drawBoard(time)
     Render.drawHUD()
-    Render.drawPanel()
+    Render.drawPortrait()
+    if G.win then Render.drawWin() end
+    if G.state == "over" then Render.drawGameOver() end
 end
 
 function love.mousepressed(x, y, button)
