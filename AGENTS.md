@@ -1,0 +1,68 @@
+# Isometric Grid Lab (LÖVE 11.5)
+
+10×10 isometric block field with pawn units. Click a pawn, click a tile, it walks there.
+
+## Run
+
+```sh
+cd isometric-grid-love2d
+love .
+```
+
+Requires LÖVE 11.x (`love --version`). No dependencies, no build step.
+`conf.lua` pins window 1280×800, resizable, vsync. Game adapts to any window
+size (viewport is re-polled every frame — tiling WMs resize without events).
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `main.lua` | Everything: state, iso math, movement, render, input (~600 lines) |
+| `conf.lua` | LÖVE config: identity, version `"11.5"`, window |
+| `assets/fonts/` | `LiberationSans-Regular.ttf` (titles), `JetBrainsMonoNerdFont-Regular.ttf` (HUD) |
+
+## Controls
+
+| Input | Action |
+|---|---|
+| Left click pawn | Select unit |
+| Left click tile | Order selected unit to move (BFS path, capped by unit range) |
+| W A S D | Step selected unit one tile (grid N/S/W/E, not camera) |
+| Tab | Cycle units |
+| Arrow keys | Pan camera |
+| Right-drag | Pan camera |
+| Mouse wheel | Zoom at cursor (0.45×–2.5×) |
+| R | Reset camera |
+| Esc | Quit |
+
+## Coordinate conventions (read before editing)
+
+- **Grid:** 1-indexed Lua tables. `heights[y][x]`, `x` = column (screen right-down axis), `y` = row (screen left-down axis). Displayed to the player as `x, y`.
+- **Blocked key:** `blocked[y * 100 + x] = true`. Pillars at (5,5), (5,6), (6,5) with `heights = 2`.
+- **Units** store integer `gx, gy` (logical tile) plus float `px, py` (smooth render position). Never render from `gx` directly — `px/py` glide toward path steps in `love.update`.
+- **Iso projection:** `tileToScreen(gx,gy,z)` → `ox + (gx-gy)*32*zoom`, `oy + ((gx+gy)*16 - z)*zoom`. Tiles are drawn centered on integer coords. Inverse `screenToTile` rounds with `+0.5` then `+1` for the 1-indexed grid.
+- **Heights** are in block levels; pixels = `level * BLOCK_H` (26). Blocked pillars render 2 levels tall.
+
+## Systems
+
+- **Movement (`findPath`, `reachable`, `orderMove`, `stepMove`):** orthogonal BFS only. Avoids blocked tiles and tiles occupied by other units. Tile keys are `y * 100 + x` everywhere (decode `x = k % 100, y = floor(k / 100)`). `orderMove` rejects paths longer than `unit.range` and orders while already moving. `unit.path` is a queue of `{x, y}` steps; each step is a fixed `STEP_TIME` (0.14 s) segment from `fx,fy` with smoothstep easing, `px/py` purely derived — never exponential approach, never snap thresholds. New units need `fx, fy` fields (or they default from `gx, gy` when idle).
+- **Rendering (painter's order):** `love.draw` iterates diagonal bands `s = gx+gy` from 2 to 20, drawing blocks then any pawn whose tile-sum equals `s`. This keeps nearer blocks/pawns overlapping farther ones correctly.
+- **Blocks (`drawBlock`):** top diamond + two extruded side faces (north = mid tone, west = darkest; light comes from screen-right). Per-tile hover lift is tweened in the `lift["x,y"]` table toward `LIFT_PX` (10 px).
+- **Pawns (`drawPawn`):** flat two-tone silhouette — ground shadow ellipse, base, trapezoid body (`color` + `dark`), collar, head, one matte highlight dot. Active pawn gets a pulsing ring. Add new units by appending to the `units` table: `{ id, name, gx, gy, px, py, color={r,g,b}, dark={r,g,b}, range=n, path={}, t=0 }`.
+- **Camera:** `camX/camY` offset + `zoom`, applied inside `tileToScreen`. `originX/originY` recenter from `syncViewport()`.
+
+## Palette (`C` table)
+
+Dark slate backdrop (`bg` 0.10,0.11,0.14), cream block tops (`top`/`topAlt`), green accents (`accent` 0.45,0.78,0.46) for selection/range/HUD. All LÖVE 11 colors are 0–1 floats. Keep new colors in the `C` table, not inline.
+
+## Verified working
+
+- `luajit -bl main.lua` syntax check passes.
+- Ran headless 8 s with empty error log; framebuffer screenshots verified: full board fits, panel renders, pawns/pillars/highlights correct at 941×506 tiled size.
+- Screenshot probe method: temporarily append a frame counter in `love.update` calling `love.graphics.captureScreenshot("probe.png")` (save-dir path, not absolute), run, then revert. Save dir: `~/.local/share/love/isometric-grid-love2d/`.
+
+## Known limitations / next hooks
+
+- No persistence, audio, or menus. No diagonal movement. No combat/HP (React prototype's `units.js` had an `hp` field — not ported).
+- `reachable()` is recomputed per tile per frame inside `drawBlock` — fine at 10×10, cache it if the grid grows.
+- `love._panning` is a throwaway global for right-drag state.
