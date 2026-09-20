@@ -506,19 +506,20 @@ function love.resize(w, h)
     originY = H / 2 - GRID * HALF_H + 24
 end
 
--- Keep the board findable: the board center may never leave the viewport
--- by more than M pixels. Without this, zoom-to-cursor on an off-board
+-- Keep the board findable: the camera is clamped every frame (and after
+-- every pan/zoom) so the board's bounding box always overlaps the viewport
+-- by at least VMIN pixels. Without this, zoom-to-cursor on an off-board
 -- point (panel, HUD, empty corner) walks the board away, and unbounded
 -- pan/zoom then strands it off-screen with only R to recover.
+-- World bounds of the field (tiles + pawn/pillar overhang): x in [-340,340],
+-- y in [-40,380].
 local function clampCamera()
-    local M = 220
-    local cxw, cyw = 0, (GRID + 1) * HALF_H -- board center in world coords
-    local bx = originX + camX + cxw * zoom
-    local by = originY + camY + cyw * zoom
-    bx = math.max(-M, math.min(W + M, bx))
-    by = math.max(-M, math.min(H + M, by))
-    camX = bx - originX - cxw * zoom
-    camY = by - originY - cyw * zoom
+    local VMIN = 150
+    local x0, x1, y0, y1 = -340, 340, -40, 380
+    camX = math.max(VMIN - originX - x1 * zoom,
+           math.min(W - VMIN - originX - x0 * zoom, camX))
+    camY = math.max(VMIN - originY - y1 * zoom,
+           math.min(H - VMIN - originY - y0 * zoom, camY))
 end
 
 local function syncViewport()
