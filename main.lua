@@ -46,7 +46,9 @@ local zoomTarget = 1
 local squash = {} -- unit id -> squash timer
 local selAnim = 1 -- 0 on selection change -> eases to 1
 local state = "menu" -- "menu" | "game"
-local menuIdx = 1    -- 1 = Start, 2 = Quit
+local menuScreen = "main" -- "main" | "modes" | "settings"
+local menuIdx = 1
+local gameMode = "classic" -- "classic" | "skirmish" | "sandbox"
 
 local fontTitle, fontHead, fontBody, fontSmall
 
@@ -614,49 +616,54 @@ function love.update(dt)
     end
 end
 
-local function drawMenu(time)
-    -- dim backdrop + centered card
-    love.graphics.setColor(0, 0, 0, 0.55)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-    local bw, bh = 420, 300
-    local bx, by = (W - bw) / 2, (H - bh) / 2
-    love.graphics.setColor(0, 0, 0, 0.45)
-    love.graphics.rectangle("fill", bx + 6, by + 8, bw, bh, 10, 10)
-    love.graphics.setColor(C.panel)
-    love.graphics.rectangle("fill", bx, by, bw, bh, 10, 10)
-    love.graphics.setColor(C.select)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", bx, by, bw, bh, 10, 10)
-    love.graphics.setLineWidth(1)
+local function menuItems()
+    if menuScreen == "main" then return { "START", "SETTINGS", "EXIT" }
+    elseif menuScreen == "modes" then return { "CLASSIC — 10x10 standard", "SKIRMISH — long range", "SANDBOX — free move", "BACK" }
+    else return { "VOLUME: ON", "BACK" } end
+end
 
+local function drawMenu(time)
+    -- full-screen menu: own backdrop, no board behind
+    drawBackdrop(time)
+    -- big title left, menu right
+    local cx = W / 2
     love.graphics.setFont(fontTitle)
     love.graphics.setColor(C.ink)
-    love.graphics.printf("ISOMETRIC GRID LAB", bx, by + 30, bw, "center")
+    love.graphics.printf("ISOMETRIC GRID LAB", 0, H * 0.22, W, "center")
     love.graphics.setFont(fontSmall)
     love.graphics.setColor(C.muted)
-    love.graphics.printf("10 x 10 BLOCK FIELD", bx, by + 66, bw, "center")
+    local sub = menuScreen == "modes" and "CHOOSE GAME MODE" or menuScreen == "settings" and "SETTINGS" or "10 x 10 BLOCK FIELD"
+    love.graphics.printf(sub, 0, H * 0.22 + 40, W, "center")
     love.graphics.setColor(C.select)
-    love.graphics.rectangle("fill", (W - 42) / 2, by + 90, 42, 3)
+    love.graphics.rectangle("fill", cx - 21, H * 0.22 + 62, 42, 3)
 
-    local labels = { "START GAME", "QUIT" }
+    local items = menuItems()
     love.graphics.setFont(fontBody)
-    for i, label in ipairs(labels) do
+    local startY = H * 0.42
+    for i, label in ipairs(items) do
         local sel = (i == menuIdx)
-        local iy = by + 130 + (i - 1) * 52
+        local iy = startY + (i - 1) * 48
         if sel then
             love.graphics.setColor(C.select[1], C.select[2], C.select[3], 0.22)
-            love.graphics.rectangle("fill", bx + 60, iy - 8, bw - 120, 36, 6, 6)
+            love.graphics.rectangle("fill", cx - 170, iy - 8, 340, 36, 6, 6)
         end
         love.graphics.setColor(sel and C.selInk or C.muted)
-        love.graphics.printf((sel and "> " or "") .. label, bx, iy, bw, "center")
+        love.graphics.printf((sel and "> " or "") .. label, cx - 170, iy, 340, "center")
     end
     love.graphics.setFont(fontSmall)
     love.graphics.setColor(C.muted)
-    love.graphics.printf("UP/DOWN + ENTER  /  CLICK  /  ESC quits", bx, by + bh - 34, bw, "center")
+    love.graphics.printf("UP/DOWN + ENTER  /  CLICK  /  ESC", 0, H - 60, W, "center")
+    if menuScreen == "main" then
+        love.graphics.printf("MODE: " .. gameMode:upper(), 0, H - 40, W, "center")
+    end
 end
 
 function love.draw()
     local time = love.timer.getTime()
+    if state == "menu" then
+        drawMenu(time)
+        return
+    end
     drawBackdrop(time)
     -- board (painter's order: back rows first)
     love.graphics.push()
@@ -677,33 +684,56 @@ function love.draw()
         love.graphics.circle("line", pf.x, pf.y, pf.r)
     end
     love.graphics.pop()
-    if state == "menu" then
-        -- board visible behind, menu card on top
-        drawMenu(time)
-        return
-    end
     drawHUD()
     drawPanel()
 end
 
+local function applyMode(m)
+    gameMode = m
+    if m == "skirmish" then
+        units[1].range, units[2].range = 6, 5
+    elseif m == "sandbox" then
+        units[1].range, units[2].range = 99, 99
+    else
+        units[1].range, units[2].range = 4, 3
+    end
+    pushLog("mode: " .. m)
+end
+
 local function activateMenu()
-    if menuIdx == 1 then state = "game" else love.event.quit() end
+    local n = #menuItems()
+    if menuScreen == "main" then
+        if menuIdx == 1 then menuScreen, menuIdx = "modes", 1
+        elseif menuIdx == 2 then menuScreen, menuIdx = "settings", 1
+        else love.event.quit() end
+    elseif menuScreen == "modes" then
+        if menuIdx == 1 then applyMode("classic"); state = "game"
+        elseif menuIdx == 2 then applyMode("skirmish"); state = "game"
+        elseif menuIdx == 3 then applyMode("sandbox"); state = "game"
+        else menuScreen, menuIdx = "main", 1 end
+    else
+        menuScreen, menuIdx = "main", 1
+    end
+end
+
+local function menuHit(x, y)
+    local items = menuItems()
+    local cx = W / 2
+    local startY = H * 0.42
+    for i = 1, #items do
+        local iy = startY + (i - 1) * 48
+        if x >= cx - 170 and x <= cx + 170 and y >= iy - 8 and y <= iy + 28 then
+            return i
+        end
+    end
+    return nil
 end
 
 function love.mousepressed(x, y, button)
     if state == "menu" then
         if button == 1 then
-            -- hit-test the two menu rows
-            local bw, bh = 420, 300
-            local bx, by = (W - bw) / 2, (H - bh) / 2
-            for i = 1, 2 do
-                local iy = by + 130 + (i - 1) * 52
-                if x >= bx + 60 and x <= bx + bw - 60 and y >= iy - 8 and y <= iy + 28 then
-                    menuIdx = i
-                    activateMenu()
-                    return
-                end
-            end
+            local hit = menuHit(x, y)
+            if hit then menuIdx = hit; activateMenu() end
         end
         return
     end
@@ -753,10 +783,14 @@ end
 
 function love.keypressed(key)
     if state == "menu" then
-        if key == "up" or key == "w" then menuIdx = 1
-        elseif key == "down" or key == "s" then menuIdx = 2
+        local n = #menuItems()
+        if key == "up" or key == "w" then menuIdx = ((menuIdx - 2) % n) + 1
+        elseif key == "down" or key == "s" then menuIdx = (menuIdx % n) + 1
         elseif key == "return" or key == "space" then activateMenu()
-        elseif key == "escape" then love.event.quit() end
+        elseif key == "escape" then
+            if menuScreen ~= "main" then menuScreen, menuIdx = "main", 1
+            else love.event.quit() end
+        end
         return
     end
     local a = units[activeIdx]
