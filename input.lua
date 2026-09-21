@@ -55,6 +55,7 @@ function M.mousepressed(x, y, button)
         if button == 1 then
             if G.menuScreen == "select" then Menu.clickSelect(x, y)
             elseif G.menuScreen == "path_choice" then Menu.clickPathChoice(x, y)
+            elseif G.menuScreen == "editor_admin" then Menu.clickAdmin(x, y)
             else
                 local hit = Menu.hit(x, y)
                 if hit then G.menuIdx = hit; Menu.activate() end
@@ -68,7 +69,7 @@ function M.mousepressed(x, y, button)
     end
     if G.state == "over" then
         -- game over: any click returns to the menu.
-        G.state, G.menuScreen, G.menuIdx = "menu", "main", 1
+        Menu.resetToMain()
         return
     end
     if G.win then
@@ -88,9 +89,10 @@ function M.mousepressed(x, y, button)
                     G.win = nil
                     -- If we just beat the boss (level 5+), end the run
                     if G.runLevel >= 5 then
-                        G.state = "menu"
-                        G.menuScreen = "main"
-                        G.menuIdx = 1
+                        local SaveSystem = require("systems.save_system")
+                        SaveSystem.recordRunResult(true, G.runLevel, G.runPathChoice,
+                            G.levelKills, G.levelCoins)
+                        Menu.resetToMain()
                         G.pushLog("RUN COMPLETE — Forest cleared!")
                     else
                         Menu.enterShop()
@@ -113,6 +115,11 @@ function M.mousepressed(x, y, button)
     if LevelEditor.enabled then
         if LevelEditor.mousepressed(x, y, button) then return end
     end
+    -- Pause overlay clicks (in-game)
+    if G.paused then
+        if button == 1 then Menu.clickPause(x, y) end
+        return
+    end
     if button == 1 then
         -- turn-box buttons first (screen-space rects set by render).
         -- While the enemy AI beat plays, board input locks; only the
@@ -129,9 +136,17 @@ function M.mousepressed(x, y, button)
             Units.endTurn()
             return
         end
-        local bb = G.boltBtn
-        if bb and x >= bb.x and x <= bb.x + bb.w and y >= bb.y and y <= bb.y + bb.h then
-            M.toggleBolt()
+        local function hitBtn(r)
+            return r and x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h
+        end
+        if hitBtn(G.moveBtn) then Units.setActionMode("move") if G.playSfx then G.playSfx("select", 0.5) end return end
+        if hitBtn(G.atkBtn) then Units.setActionMode("attack") if G.playSfx then G.playSfx("select", 0.5) end return end
+        if hitBtn(G.splBtn) then
+            local act = G.units[G.activeIdx]
+            -- tank taunts instantly (AoE); everyone else enters SPL stance
+            if act and act.kind == "tank" then Units.orderTaunt(act) return end
+            if (G.actionMode or "move") == "spells" then Units.setActionMode("move")
+            else Units.setActionMode("spells") end
             return
         end
         local st = G.statsToggle
@@ -142,34 +157,44 @@ function M.mousepressed(x, y, button)
         local tx, ty = Board.pickTile(x, y)
         if tx == nil then return end
         local hit = Units.unitAt(tx, ty)
+        local mode = G.actionMode or "move"
         if hit then
             if hit.team == "enemy" then
-                -- clicking an enemy attacks (or bolts when armed); never selects.
+                -- mode-gated: ATTACK strikes, SPELLS casts/throws, MOVE only hints.
                 local act = G.units[G.activeIdx]
-                if G.castMode then Units.orderCast(act, hit)
-                else Units.orderAttack(act, hit) end
+                if mode == "spells" then
+                    if act.kind == "assassin" then Units.orderThrow(act, hit)
+                    else Units.orderCast(act, hit) end
+                elseif mode == "attack" then Units.orderAttack(act, hit)
+                else G.pushLog("press F (or ATK) to strike " .. hit.name) end
             else
                 for i, u in ipairs(G.units) do
                     if u == hit then G.activeIdx = i end
                 end
                 Units.syncTurnPos()
+                Units.setActionMode("move")
                 G.selAnim = 0
+                if G.playSfx then G.playSfx("select", 0.5) end
                 G.pushLog("selected " .. hit.name)
             end
         else
-            Units.orderMove(G.units[G.activeIdx], tx, ty)
+            if mode == "move" then
+                Units.orderMove(G.units[G.activeIdx], tx, ty)
+            else
+                G.pushLog("press M (or MOVE) to walk there")
+            end
         end
-    elseif button == 2 then
-        love._panning = true
     end
+    -- NOTE: right-click pan removed (was love._panning). Camera stays fixed;
+    -- use arrow keys / R to reset. No button-2 handling here on purpose.
 end
 
 function M.mousereleased(_, _, button)
-    if button == 2 then love._panning = false end
+    -- no-op: right-drag pan removed
 end
 
 function M.mousemoved(_, _, dx, dy)
-    if love._panning then G.camX, G.camY = G.camX + dx, G.camY + dy; Camera.clampCamera() end
+    -- no-op: right-drag pan removed
 end
 
 function M.wheelmoved(_, y)
@@ -178,23 +203,27 @@ function M.wheelmoved(_, y)
 end
 
 function M.keypressed(key)
-    if G.state == "menu" then return Menu.keypressed(key) end
-    if G.phase == "shop" then return Menu.shopKeypressed(key) end
+    -- Menu state: delegate to menu system
+    if G.state == "menu" then
+        return Menu.keypressed(key)
+    end
+    if G.phase == "shop" then
+        return Menu.shopKeypressed(key)
+    end
     if G.state == "over" then
-        G.state, G.menuScreen, G.menuIdx = "menu", "main", 1
+        Menu.resetToMain()
         return
     end
     if G.win then
-        -- win flow: SPACE/ENTER advances, everything else locked.
         if key == "space" or key == "return" then
             if G.win.phase == "rewards" then Menu.toUpgrade()
             elseif G.win.phase == "upgrade" then
                 G.win = nil
-                -- If we just beat the boss (level 5+), end the run
                 if G.runLevel >= 5 then
-                    G.state = "menu"
-                    G.menuScreen = "main"
-                    G.menuIdx = 1
+                    local SaveSystem = require("systems.save_system")
+                    SaveSystem.recordRunResult(true, G.runLevel, G.runPathChoice,
+                        G.levelKills, G.levelCoins)
+                    Menu.resetToMain()
                     G.pushLog("RUN COMPLETE — Forest cleared!")
                 else
                     Menu.enterShop()
@@ -203,11 +232,32 @@ function M.keypressed(key)
         end
         return
     end
-    local a = G.units[G.activeIdx]
-    if key == "escape" then G.state = "menu"; G.menuIdx = 1 return end
+
+    -- In-game: ESC opens pause menu (unless editor is open)
+    local LevelEditor = require("systems.level_editor")
+    if LevelEditor.enabled then
+        if LevelEditor.keypressed(key) then return end
+    end
+
+    -- Paused: only ESC resumes, other keys go to pause handler
+    if G.paused then
+        if key == "escape" then
+            G.paused = false
+            Menu.popPause()
+        else
+            Menu.pauseKeypressed(key)
+        end
+        return
+    end
+
+    if key == "escape" then
+        G.paused = true
+        Menu.pushPause()
+        return
+    end
+
     if key == "c" then G.showStats = not G.showStats return end
     if key == "f2" then
-        local LevelEditor = require("systems.level_editor")
         LevelEditor.toggle()
         return
     end
@@ -224,9 +274,9 @@ function M.keypressed(key)
         LevelGenerator.generateAndSave("forest", "boss", 2, math.random(1, 999999))
         return
     end
-    if G.ai then return end -- enemy beat playing: board input locked
+    if G.ai then return end
+    local a = G.units[G.activeIdx]
     if key == "tab" then
-        -- cycle unacted heroes on the visible map (falls back to all heroes).
         if #G.turnOrder == 0 then Units.buildTurnOrder() end
         local function heroIdx(id)
             local idx = Units.indexOfId(id)
@@ -249,13 +299,19 @@ function M.keypressed(key)
         end
         if picked then
             G.activeIdx = picked
+            Units.setActionMode("move")
             G.selAnim = 0
+            if G.playSfx then G.playSfx("select", 0.5) end
             G.pushLog("selected " .. G.units[picked].name)
         end
     elseif key == "space" then Units.endTurn()
-    elseif key == "q" then M.toggleBolt()
+    elseif key == "m" then Units.setActionMode("move") if G.playSfx then G.playSfx("select", 0.4) end
+    elseif key == "f" then Units.setActionMode("attack") if G.playSfx then G.playSfx("select", 0.4) end
+    elseif key == "q" then
+        if (G.actionMode or "move") == "spells" then Units.setActionMode("move")
+        else Units.setActionMode("spells") end
     elseif key == "r" then Camera.reset()
-    elseif a and #a.path == 0 then
+    elseif a and #a.path == 0 and (G.actionMode or "move") == "move" then
         if key == "w" then Units.stepMove(a, -1, 0)
         elseif key == "s" then Units.stepMove(a, 1, 0)
         elseif key == "a" then Units.stepMove(a, 0, -1)
@@ -263,17 +319,10 @@ function M.keypressed(key)
     end
 end
 
--- Arm/cancel firebolt targeting for the active hero.
+-- Bolt helper: Q routes through the SPELLS action mode now.
 function M.toggleBolt()
-    local a = G.units[G.activeIdx]
-    if not a or a.team ~= "hero" or #a.path > 0 then return end
-    if a.acted then G.pushLog(a.name .. ": already acted") return end
-    if not G.castMode and (a.mana or 0) < Units.BOLT_COST then
-        G.pushLog(a.name .. ": not enough mana") return
-    end
-    G.castMode = not G.castMode
-    G.pushLog(G.castMode and (a.name .. ": bolt armed — click an enemy")
-        or (a.name .. ": bolt cancelled"))
+    if (G.actionMode or "move") == "spells" then Units.setActionMode("move")
+    else Units.setActionMode("spells") end
 end
 
 return M

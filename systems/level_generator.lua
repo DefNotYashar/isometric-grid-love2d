@@ -23,6 +23,15 @@ M.config = {
     tall_grass_cluster_size = { 4, 10 },
 }
 
+-- Merge user config with defaults
+local function mergeConfig(userConfig)
+    local cfg = {}
+    for k, v in pairs(M.config) do
+        cfg[k] = (userConfig and userConfig[k] ~= nil) and userConfig[k] or v
+    end
+    return cfg
+end
+
 -- Seeded RNG (LCG Park-Miller)
 local function makeRng(seed)
     local s = (seed % 2147483646) + 1
@@ -40,7 +49,7 @@ end
 
 -- Generate a complete level from seed
 function M.generate(seed, config)
-    config = config or M.config
+    config = mergeConfig(config)
     local rng = makeRng(seed)
     local w, h = config.width, config.height
 

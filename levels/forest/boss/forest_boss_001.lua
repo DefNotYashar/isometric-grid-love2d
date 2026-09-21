@@ -7,14 +7,14 @@ return {
     tiles = {
         { "default", "default", "grass",   "grass",   "mountain", "mountain", "grass",   "grass",   "default", "default" },
         { "default", "grass",   "grass",   "mountain", "mountain", "mountain", "mountain", "grass",   "grass",   "default" },
-        { "grass",   "grass",   "mountain", "mountain", "water",    "water",    "mountain", "mountain", "grass",   "grass" },
+        { "grass",   "grass",   "mountain", "mountain", "grass",    "grass",    "mountain", "mountain", "grass",   "grass" },
         { "grass",   "mountain", "mountain", "water",   "grass",    "grass",    "water",    "mountain", "mountain", "grass" },
         { "mountain", "mountain", "water",   "grass",   "grass",    "grass",    "grass",    "water",    "mountain", "mountain" },
         { "mountain", "mountain", "water",   "grass",   "grass",    "grass",    "grass",    "water",    "mountain", "mountain" },
         { "grass",   "mountain", "mountain", "water",   "grass",    "grass",    "water",    "mountain", "mountain", "grass" },
-        { "grass",   "grass",   "mountain", "mountain", "water",    "water",    "mountain", "mountain", "grass",   "grass" },
-        { "default", "grass",   "grass",   "mountain", "mountain", "mountain", "mountain", "grass",   "grass",   "default" },
-        { "default", "default", "grass",   "grass",   "mountain", "mountain", "grass",   "grass",   "default", "default" },
+        { "grass",   "grass",   "mountain", "mountain", "grass",    "grass",    "mountain", "mountain", "grass",   "grass" },
+        { "default", "grass",   "grass",   "mountain", "grass",   "grass",   "mountain", "grass",   "grass",   "default" },
+        { "default", "default", "grass",   "grass",   "grass",   "grass",   "grass",   "grass",   "default", "default" },
     },
 
     heights = {
@@ -26,8 +26,8 @@ return {
         { 2, 2, 0, 0, 0, 0, 0, 0, 2, 2 },
         { 0, 2, 2, 0, 0, 0, 0, 2, 2, 0 },
         { 0, 0, 2, 2, 0, 0, 2, 2, 0, 0 },
-        { 0, 0, 0, 2, 2, 2, 2, 0, 0, 0 },
-        { 0, 0, 0, 0, 2, 2, 0, 0, 0, 0 },
+        { 0, 0, 0, 2, 0, 0, 2, 0, 0, 0 },
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
     },
 
     player_spawns = {
@@ -38,8 +38,8 @@ return {
     },
 
     enemy_spawns = {
-        { x = 5, y = 2 },
-        { x = 6, y = 2 },
+        { x = 5, y = 5 },
+        { x = 6, y = 5 },
     },
 
     tags = { "forest", "boss", "mountain", "water", "arena" },

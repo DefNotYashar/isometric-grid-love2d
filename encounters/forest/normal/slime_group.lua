@@ -1,5 +1,5 @@
--- slime_group — 4 slimes
+-- slime_group — 3 slimes
 return {
     id = "slime_group",
-    enemies = { "slime", "slime", "slime", "slime" },
+    enemies = { "slime", "slime", "slime" },
 }

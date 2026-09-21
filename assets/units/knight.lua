@@ -1,5 +1,6 @@
 -- knight.lua — minimal knight: clean great-helm + slab cuirass.
 local M = {}
+local Sigil = require("assets.units.sigil")
 
 local STEEL_L = {0.86, 0.87, 0.90}
 local STEEL_M = {0.60, 0.62, 0.66}
@@ -41,9 +42,10 @@ function M.drawKnight(u, time, G, Board, C)
     love.graphics.polygon("fill", {cx-4,cy-13, cx-3,cy-26, cx+3,cy-26, cx+4,cy-13})
     love.graphics.setColor(STEEL_L)
     love.graphics.polygon("fill", {cx-3,cy-14, cx-2.2,cy-25, cx-0.8,cy-25, cx-1.4,cy-14})
-    -- team stripe (tabard)
+    -- team stripe (tabard) + chosen sigil in cream steel
     love.graphics.setColor(u.color)
     love.graphics.rectangle("fill", cx-1.4, cy-24, 2.8, 11)
+    Sigil.draw(u.sigil or "cross", cx, cy-19, 2.2, STEEL_HI)
 
     -- arms: vambraces + gauntlets
     love.graphics.setColor(STEEL_M)
@@ -55,6 +57,41 @@ function M.drawKnight(u, time, G, Board, C)
     love.graphics.setColor(STEEL_D)
     love.graphics.circle("fill", cx-5.8, cy-14, 1.7)
     love.graphics.circle("fill", cx+5.8, cy-14, 1.7)
+
+    -- arming sword in the right hand: rests point-down, swings on attack.
+    -- u.swingT / swingDx / swingDy are set by Units.orderAttack (0.35 s window).
+    do
+        local sw = u.swingT and (love.timer.getTime() - u.swingT) or 99
+        local swinging = sw >= 0 and sw < 0.35
+        local k = swinging and math.sin((sw / 0.35) * math.pi) or 0
+        local sx = (u.swingDx or 1) - (u.swingDy or 0)
+        local side = sx >= 0 and 1 or -1
+        local hx = cx + side * 5.8
+        local hy = cy - 14 - k * 8
+        -- blade (up when swinging, down at rest)
+        love.graphics.setColor(STEEL_L)
+        if swinging then
+            love.graphics.rectangle("fill", hx - 1, hy - 16, 2, 13)
+            love.graphics.polygon("fill", {hx - 1, hy - 16, hx + 1, hy - 16, hx, hy - 19})
+        else
+            love.graphics.rectangle("fill", hx - 1, hy - 2, 2, 13)
+            love.graphics.polygon("fill", {hx - 1, hy + 11, hx + 1, hy + 11, hx, hy + 14})
+        end
+        -- guard + grip + pommel
+        love.graphics.setColor({0.55, 0.42, 0.20})
+        love.graphics.rectangle("fill", hx - 2.6, hy - 3, 5.2, 1.4)
+        love.graphics.setColor(STEEL_D)
+        love.graphics.rectangle("fill", hx - 0.8, hy - 2, 1.6, 3)
+        love.graphics.circle("fill", hx, hy + 1.6, 1.1)
+        -- swoosh arc while swinging
+        if swinging then
+            love.graphics.setColor(1, 1, 1, 0.7 * k)
+            love.graphics.setLineWidth(2.5)
+            love.graphics.arc("line", "open", cx + side * 9, cy - 22, 11,
+                -1.2 + (sw / 0.35) * 1.6 * side, 1.2 + (sw / 0.35) * 1.6 * side)
+            love.graphics.setLineWidth(1)
+        end
+    end
 
     -- pauldrons: lames suggestion
     love.graphics.setColor(STEEL_D)
@@ -76,17 +113,23 @@ function M.drawKnight(u, time, G, Board, C)
     love.graphics.setColor(STEEL_M)
     love.graphics.ellipse("fill", cx, cy-27.8, 3.8, 1.8)
 
-    -- helm: great-helm + visor slot + specular edge
+    -- helm: great-helm whose whole face is a crusader cross (team color)
     love.graphics.setColor(STEEL_D)
     love.graphics.rectangle("fill", cx-6, cy-40, 12, 12, 2, 2)
-    love.graphics.setColor(STEEL_M)
-    love.graphics.rectangle("fill", cx-6, cy-40, 12, 10, 2, 2)
-    love.graphics.setColor(STEEL_L)
-    love.graphics.rectangle("fill", cx-6, cy-40, 3, 10, 2, 2)
+    -- cross: vertical beam + horizontal beam across the face
+    love.graphics.setColor(u.color)
+    love.graphics.rectangle("fill", cx-2.2, cy-40, 4.4, 12, 1, 1)
+    love.graphics.rectangle("fill", cx-6, cy-37.5, 12, 4.4, 1, 1)
+    -- steel edge light on the cross
     love.graphics.setColor(STEEL_HI)
-    love.graphics.rectangle("fill", cx-5.5, cy-39.5, 1, 9)
+    love.graphics.rectangle("fill", cx-2.2, cy-40, 1.1, 12)
+    love.graphics.rectangle("fill", cx-6, cy-37.5, 12, 1.1)
+    -- visor slit cut across the lower beam
     love.graphics.setColor(INK)
-    love.graphics.rectangle("fill", cx-4, cy-35, 8, 2, 1, 1)
+    love.graphics.rectangle("fill", cx-4, cy-33.5, 8, 2, 1, 1)
+    -- eye holes punched through the horizontal beam
+    love.graphics.circle("fill", cx-3.6, cy-35.4, 1.3)
+    love.graphics.circle("fill", cx+3.6, cy-35.4, 1.3)
     -- crest
     love.graphics.setColor(u.color)
     love.graphics.polygon("fill", {cx-1,cy-42,cx+1,cy-42,cx,cy-45})
@@ -111,8 +154,9 @@ function M.drawKnight(u, time, G, Board, C)
     end
 end
 
-function M.drawBust(cx, feet, color, dark, scale)
+function M.drawBust(cx, feet, color, dark, scale, sigil)
     scale = scale or 1
+    sigil = sigil or "cross"
     love.graphics.setColor(dark[1]*0.5, dark[2]*0.5, dark[3]*0.5)
     love.graphics.ellipse("fill", cx, feet, 8*scale, 3.5*scale)
     -- legs (full body)
@@ -139,22 +183,26 @@ function M.drawBust(cx, feet, color, dark, scale)
     love.graphics.setColor(STEEL_L)
     love.graphics.ellipse("fill", cx-6.6*scale, feet-21.5*scale, 1.8*scale, 1.3*scale)
     love.graphics.ellipse("fill", cx+5.4*scale, feet-21.5*scale, 1.8*scale, 1.3*scale)
-    -- upper torso + tabard
+    -- upper torso + tabard + chosen sigil
     love.graphics.setColor(STEEL_M)
     love.graphics.rectangle("fill", cx-7*scale, feet-21*scale, 14*scale, 10*scale, 2*scale, 2*scale)
     love.graphics.setColor(color)
     love.graphics.rectangle("fill", cx-1.8*scale, feet-21*scale, 3.6*scale, 10*scale)
-    -- helm
+    Sigil.draw(sigil, cx, feet-16*scale, 2.4*scale, STEEL_HI)
+    -- helm: whole face is a crusader cross (team color)
     love.graphics.setColor(STEEL_D)
     love.graphics.rectangle("fill", cx-7*scale, feet-37*scale, 14*scale, 14*scale, 2*scale, 2*scale)
-    love.graphics.setColor(STEEL_M)
-    love.graphics.rectangle("fill", cx-7*scale, feet-37*scale, 14*scale, 11*scale, 2*scale, 2*scale)
-    love.graphics.setColor(STEEL_L)
-    love.graphics.rectangle("fill", cx-7*scale, feet-37*scale, 3*scale, 11*scale, 2*scale, 2*scale)
+    love.graphics.setColor(color)
+    love.graphics.rectangle("fill", cx-2.4*scale, feet-37*scale, 4.8*scale, 14*scale, 1*scale, 1*scale)
+    love.graphics.rectangle("fill", cx-7*scale, feet-34.5*scale, 14*scale, 4.8*scale, 1*scale, 1*scale)
     love.graphics.setColor(STEEL_HI)
-    love.graphics.rectangle("fill", cx-6.5*scale, feet-36.5*scale, 1*scale, 10*scale)
+    love.graphics.rectangle("fill", cx-2.4*scale, feet-37*scale, 1.2*scale, 14*scale)
+    love.graphics.rectangle("fill", cx-7*scale, feet-34.5*scale, 14*scale, 1.2*scale)
     love.graphics.setColor(INK)
-    love.graphics.rectangle("fill", cx-4.5*scale, feet-31*scale, 9*scale, 2*scale, 1*scale, 1*scale)
+    love.graphics.rectangle("fill", cx-4.5*scale, feet-30.5*scale, 9*scale, 2*scale, 1*scale, 1*scale)
+    -- eye holes through the horizontal beam
+    love.graphics.circle("fill", cx-4*scale, feet-32.1*scale, 1.4*scale)
+    love.graphics.circle("fill", cx+4*scale, feet-32.1*scale, 1.4*scale)
     love.graphics.setColor(color)
     love.graphics.polygon("fill", {cx-1*scale,feet-39*scale,cx+1*scale,feet-39*scale,cx,feet-42*scale})
 end
@@ -167,8 +215,14 @@ function M.drawChip(cx, y, r, color, dark, alpha)
     love.graphics.circle("fill", cx, y, r-2.5)
     love.graphics.setColor(col(STEEL_L))
     love.graphics.ellipse("fill", cx-r*0.12, y-r*0.18, r*0.4, r*0.32)
+    -- helm face: full crusader cross (team color) with eye holes
+    love.graphics.setColor(col(color))
+    love.graphics.rectangle("fill", cx-r*0.12, y-r*0.55, r*0.24, r*1.1, 1,1)
+    love.graphics.rectangle("fill", cx-r*0.45, y-r*0.35, r*0.9, r*0.24, 1,1)
     love.graphics.setColor(col(INK))
-    love.graphics.rectangle("fill", cx-r*0.4, y-1, r*0.8, r*0.18, 2,2)
+    love.graphics.circle("fill", cx-r*0.26, y-r*0.23, r*0.09)
+    love.graphics.circle("fill", cx+r*0.26, y-r*0.23, r*0.09)
+    love.graphics.rectangle("fill", cx-r*0.4, y+r*0.28, r*0.8, r*0.14, 2,2)
     love.graphics.setColor(col(color))
     love.graphics.circle("fill", cx+r*0.5, y-r*0.6, r*0.14)
 end

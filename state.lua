@@ -17,7 +17,7 @@ local G = {
     -- viewport / camera
     W = 1280, H = 800,
     originX = 0, originY = 0,
-    camX = 0, camY = 0, zoom = 2.1, zoomTarget = 2.1,
+    camX = 0, camY = 0, zoom = 2.4, zoomTarget = 2.4,
 
     -- board
     heights = {}, blocked = {}, terrain = {},
@@ -40,6 +40,7 @@ local G = {
     levelKills = 0, levelCoins = 0, levelHp = 0, -- this level's rewards
     win = nil, -- win transition {t, dur, level, kills, coins, hp} or nil
     castMode = false, -- firebolt targeting armed
+    actionMode = "move", -- combat stance: "move" | "attack" | "spells"
     showStats = true, -- portrait stat block expanded
     volume = 8, -- music volume 0..10 (settings screen)
     statsToggle = nil, -- clickable STATS arrow rect, set by render
@@ -53,18 +54,22 @@ local G = {
     -- per-frame / fx state
     hover = nil, lift = {}, log = {},
     dust = {}, puffs = {},
-    cachedReach = {}, hoverPath = {},
+    cachedReach = {}, cachedAttack = {}, hoverPath = {},
     squash = {}, selAnim = 1,
 
     -- flow
     state = "menu",       -- "menu" | "game"
-    menuScreen = "main",  -- "main" | "modes" | "select" | "settings"
+    menuStack = {"main"}, -- navigation stack: "main" -> "modes" -> "select" -> "editor_admin" -> "editor_in_game" | "pause" | "settings" | "path_choice" | "game_over"
+    menuScreen = "main",  -- current screen (derived from stack top for menus)
     menuIdx = 1,
     gameMode = "free",    -- "run" | "free"
     phase = "play",       -- "play" | "shop" | "win" | "upgrade"
+    paused = false,       -- in-game pause overlay
+    settings = { showAdmin = true, volume = 8 }, -- persistent settings
 
     -- fonts (set in love.load)
     fontTitle = nil, fontHead = nil, fontBody = nil, fontSmall = nil,
+    fontDisplay = nil, fontDamage = nil,
 
     -- palette (all LÖVE 11 colors are 0-1 floats; keep new colors here)
     C = {

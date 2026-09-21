@@ -281,14 +281,26 @@ function M.drawBlock(gx, gy, time)
         end
     end
 
-    -- range wash (cached): quiet desaturated teal
+    -- movement wash (heroes, MOVE mode only): strong green, overlaps tile
     if G.cachedReach[gy * 100 + gx] and not stone then
-        love.graphics.setColor(0.30, 0.55, 0.52, 0.10)
+        love.graphics.setColor(0.25, 0.85, 0.30, 0.42)
         love.graphics.polygon("fill", top)
-        love.graphics.setColor(0.30, 0.60, 0.55, 0.50)
+        love.graphics.setColor(0.35, 1.0, 0.40, 1.0)
+        love.graphics.setLineWidth(2.5)
+        love.graphics.polygon("line", diamond(cx, cy, w - 6*G.zoom, hh - 3*G.zoom))
+        love.graphics.setColor(0.45, 1.0, 0.50, 1.0)
+        love.graphics.circle("fill", cx, cy, 2.6*G.zoom)
         love.graphics.setLineWidth(1)
-        love.graphics.polygon("line", diamond(cx, cy, w - 8*G.zoom, hh - 4*G.zoom))
-        love.graphics.circle("fill", cx, cy, 1.8*G.zoom)
+    end
+
+    -- attack wash (ATTACK/SPELLS mode only): strong red, overlaps tile
+    if G.cachedAttack and G.cachedAttack[gy * 100 + gx] and not stone then
+        love.graphics.setColor(1.0, 0.22, 0.18, 0.42)
+        love.graphics.polygon("fill", top)
+        love.graphics.setColor(1.0, 0.30, 0.25, 1.0)
+        love.graphics.setLineWidth(2.5)
+        love.graphics.polygon("line", diamond(cx, cy, w - 6*G.zoom, hh - 3*G.zoom))
+        love.graphics.setLineWidth(1)
     end
 
     -- hover path preview dots in selection cyan
@@ -328,12 +340,31 @@ function M.drawBlock(gx, gy, time)
 end
 
 local Knight = require("assets.units.knight")
+-- impact flash: squash-driven white ground burst, drawn under every pawn.
+-- All damage paths set G.squash[id], so this needs no per-weapon hooks.
+function M.impactFlash(u)
+    local sq = G.squash[u.id] or 0
+    if sq <= 0.02 then return end
+    local hgt = (G.heights[u.gy] and G.heights[u.gy][u.gx]) or 0
+    local k = u.gx .. "," .. u.gy
+    local l = G.lift[k] or 0
+    local cx, cy = Board.tileToScreen(u.px, u.py, hgt * G.BLOCK_H + l)
+    local s = G.zoom
+    love.graphics.setColor(1, 1, 1, 0.55 * sq)
+    love.graphics.ellipse("fill", cx, cy, (10 + 14 * sq) * s, (5 + 7 * sq) * s)
+    love.graphics.setColor(1, 1, 1, 0.8 * sq)
+    love.graphics.setLineWidth(2)
+    love.graphics.ellipse("line", cx, cy, (14 + 22 * sq) * s, (7 + 11 * sq) * s)
+    love.graphics.setLineWidth(1)
+end
 function M.drawPawn(u, time)
     if u.team == "enemy" then
         if u.kind == "archer" then return M.drawSkeleton(u, time) end
         return M.drawSlime(u, time)
     end
     if u.kind == "knight" then return Knight.drawKnight(u, time, G, Board, G.C) end
+    if u.kind == "assassin" then return require("assets.units.assassin").drawAssassin(u, time, G, Board, G.C) end
+    if u.kind == "tank" then return require("assets.units.tank").drawTank(u, time, G, Board, G.C) end
     local C = G.C
     -- smooth grid position -> screen (stand on block top)
     local hgt = G.heights[u.gy] and G.heights[u.gy][u.gx] or 0
@@ -463,6 +494,33 @@ function M.drawSkeleton(u, time)
         love.graphics.printf(u.name:upper(), nx, ny + 3 * G.zoom, nw, "center")
         love.graphics.setLineWidth(1)
     end
+    -- Elite badge (gold star above head)
+    if u.eliteTier and u.eliteTier > 0 then
+        love.graphics.setColor(1, 0.85, 0.2, 1)
+        local starR = 8
+        local pts = {}
+        for i = 1, 10 do
+            local a = i * math.pi / 5 - math.pi / 2
+            local r = (i % 2 == 1) and starR or starR * 0.45
+            pts[#pts + 1] = cx + math.cos(a) * r * s
+            pts[#pts + 1] = cy - 16 * s + math.sin(a) * r * s
+        end
+        love.graphics.polygon("fill", pts)
+    end
+    -- Poison indicator on skeleton
+    if u.poison and u.poison > 0 then
+        local pulse = math.sin(time * 6) * 0.5 + 0.5
+        love.graphics.setColor(0.3, 1, 0.2, 0.5 + pulse * 0.5)
+        love.graphics.push()
+        love.graphics.translate(cx, cy)
+        love.graphics.scale(s, s)
+        for i = 1, 3 do
+            local angle = time * 2 + i * 2.1
+            local r = 10 + math.sin(time * 4 + i) * 2
+            love.graphics.circle("fill", math.cos(angle) * r, -8 + math.sin(angle) * r * 0.5, 1.5)
+        end
+        love.graphics.pop()
+    end
 end
 
 -- Slime blob: squash-stretch dome with idle wobble, glossy highlight,
@@ -479,7 +537,9 @@ function M.drawSlime(u, time)
     local ph = 0
     for i = 1, #u.id do ph = ph + u.id:byte(i) end
     local wob = math.sin((time or 0) * 5 + ph) * 0.05
-    local sx, sy = 1 + sq * 0.3 + wob, 1 - sq * 0.2 - wob
+    local isSmall = u.isSmall
+    local scale = u.isBig and 1.5 or (isSmall and 0.5 or 1)
+    local sx, sy = (1 + sq * 0.3 + wob) * scale, (1 - sq * 0.2 - wob) * scale
     local cx, cy = Board.tileToScreen(u.px, u.py, hgt * G.BLOCK_H + l + hop)
     local s = G.zoom
     local active = (G.units[G.activeIdx] == u)
@@ -490,26 +550,49 @@ function M.drawSlime(u, time)
     love.graphics.translate(-cx, -cy)
     -- dome body
     love.graphics.setColor(u.color)
-    love.graphics.ellipse("fill", cx, cy - 9, 12, 10)
+    love.graphics.ellipse("fill", cx, cy - 9, 12 * scale, 10 * scale)
     -- dark lower band
     love.graphics.setColor(u.dark)
-    love.graphics.ellipse("fill", cx, cy - 4, 9.5, 4)
+    love.graphics.ellipse("fill", cx, cy - 4, 9.5 * scale, 4 * scale)
     -- glossy highlight upper-left
     love.graphics.setColor(1, 1, 1, 0.5)
-    love.graphics.ellipse("fill", cx - 4.5, cy - 13, 3.6, 2.4)
+    love.graphics.ellipse("fill", cx - 4.5 * scale, cy - 13 * scale, 3.6 * scale, 2.4 * scale)
     -- eyes + sparkles
     love.graphics.setColor(0.10, 0.12, 0.14)
-    love.graphics.circle("fill", cx - 3.5, cy - 10, 1.9)
-    love.graphics.circle("fill", cx + 3.5, cy - 10, 1.9)
+    love.graphics.circle("fill", cx - 3.5 * scale, cy - 10 * scale, 1.9 * scale)
+    love.graphics.circle("fill", cx + 3.5 * scale, cy - 10 * scale, 1.9 * scale)
     love.graphics.setColor(1, 1, 1, 0.85)
-    love.graphics.circle("fill", cx - 4, cy - 10.6, 0.7)
-    love.graphics.circle("fill", cx + 3, cy - 10.6, 0.7)
+    love.graphics.circle("fill", cx - 4 * scale, cy - 10.6 * scale, 0.7 * scale)
+    love.graphics.circle("fill", cx + 3 * scale, cy - 10.6 * scale, 0.7 * scale)
+    -- Poison indicator: green pulsing dots
+    if u.poison and u.poison > 0 then
+        local pulse = math.sin(time * 6) * 0.5 + 0.5
+        love.graphics.setColor(0.3, 1, 0.2, 0.5 + pulse * 0.5)
+        for i = 1, 3 do
+            local angle = time * 2 + i * 2.1
+            local r = 10 * scale + math.sin(time * 4 + i) * 2 * scale
+            love.graphics.circle("fill", cx + math.cos(angle) * r, cy - 8 * scale + math.sin(angle) * r * 0.5, 1.5 * scale)
+        end
+    end
+    -- Elite badge: gold star
+    if u.eliteTier and u.eliteTier > 0 then
+        love.graphics.setColor(1, 0.85, 0.2, 1)
+        local starR = 8 * scale
+        local pts = {}
+        for i = 1, 10 do
+            local a = i * math.pi / 5 - math.pi / 2
+            local r = (i % 2 == 1) and starR or starR * 0.45
+            pts[#pts + 1] = cx + math.cos(a) * r
+            pts[#pts + 1] = cy - 16 * scale + math.sin(a) * r
+        end
+        love.graphics.polygon("fill", pts)
+    end
     love.graphics.pop()
 
     if active then
         love.graphics.setColor(C.select)
         love.graphics.setLineWidth(2)
-        love.graphics.ellipse("line", cx, cy - 2 * s, 16 * s, 7 * s)
+        love.graphics.ellipse("line", cx, cy - 2 * s, 16 * s * scale, 7 * s * scale)
         love.graphics.setLineWidth(1)
         local bob = math.sin(love.timer.getTime() * 2) * 2
         local nw, nh = 64 * G.zoom, 18 * G.zoom
@@ -585,6 +668,15 @@ function M.drawBackdrop(time)
     love.graphics.rectangle("fill", 0, G.H - 3, G.W, 3)
     love.graphics.rectangle("fill", 0, 0, 3, G.H)
     love.graphics.rectangle("fill", G.W - 3, 0, 3, G.H)
+    -- film grain: sparse flickering dots for the AA finish
+    do
+        local n = math.floor(G.W * G.H / 14000)
+        for i = 1, n do
+            local a = 0.02 + math.random() * 0.035
+            love.graphics.setColor(1, 1, 1, a)
+            love.graphics.rectangle("fill", math.random() * G.W, math.random() * G.H, 1.6, 1.6)
+        end
+    end
 end
 
 function M.drawBoardShadow()
@@ -677,7 +769,11 @@ function M.drawPortrait()
         love.graphics.circle("fill", cx + 3, feet - 10, 1.7)
         end
     elseif a.kind == "knight" then
-        require("assets.units.knight").drawBust(cx, feet, a.color, a.dark)
+        require("assets.units.knight").drawBust(cx, feet, a.color, a.dark, 1, a.sigil)
+    elseif a.kind == "assassin" then
+        require("assets.units.assassin").drawBust(cx, feet, a.color, a.dark, 1, a.sigil)
+    elseif a.kind == "tank" then
+        require("assets.units.tank").drawBust(cx, feet, a.color, a.dark, 1, a.sigil)
     else
         love.graphics.setColor(C.shadow)
         love.graphics.ellipse("fill", cx, feet, 11, 4.5)
@@ -702,20 +798,24 @@ function M.drawPortrait()
     love.graphics.print(a.name:upper(), tx, row)
     love.graphics.setFont(G.fontSmall)
     love.graphics.setColor(C.muted)
-    local sub = a.gx .. ", " .. a.gy .. "  ·  RNG " .. tostring(a.range)
+    local sub = a.gx .. ", " .. a.gy .. "  ·  MV " .. tostring(a.range)
     if isFoe then sub = sub .. "  ·  ENEMY" end
     love.graphics.print(sub, tx, row + 34)
     local status, scol
+    local stance = ""
+    if not isFoe and not a.acted then
+        stance = " · " .. string.upper(G.actionMode or "move")
+    end
     if isFoe then status, scol = "enemy turn", C.floatDmg
     elseif a.acted then status, scol = "spent", C.muted
-    elseif a.moved and a.attacked then status, scol = "move + attack used", C.accent
-    elseif a.moved then status, scol = "attack or pass", C.accent
-    elseif a.attacked then status, scol = "move or pass", C.accent
-    else status, scol = "ready", C.accent end
+    elseif a.moved and a.attacked then status, scol = "move + attack used" .. stance, C.accent
+    elseif a.moved then status, scol = "attack or pass" .. stance, C.accent
+    elseif a.attacked then status, scol = "move or pass" .. stance, C.accent
+    else status, scol = "ready" .. stance, C.accent end
     love.graphics.setColor(C.barBg)
-    love.graphics.rectangle("fill", tx - 8, row + 52, 148, 20, 10, 10)
+    love.graphics.rectangle("fill", tx - 8, row + 52, 176, 20, 10, 10)
     love.graphics.setColor(scol)
-    love.graphics.rectangle("line", tx - 8, row + 52, 148, 20, 10, 10)
+    love.graphics.rectangle("line", tx - 8, row + 52, 176, 20, 10, 10)
     love.graphics.setColor(scol)
     love.graphics.print(status, tx, row + 55)
     -- beveled bars with shine + segment ticks (mana ticks = one bolt each)
@@ -785,7 +885,11 @@ function M.drawPortrait()
             row = row + 50
         end
         trio("VIG", st.vigor, "STR", st.strength, "DEX", st.dexterity)
-        trio("LCK", st.luck, "SPD", st.speed, "CHA", st.charisma)
+        if a.team ~= "enemy" then
+            trio("LCK", st.luck, "SPD", st.speed, "CHA", st.charisma)
+        else
+            trio("SPD", st.speed, "", 0, "", 0)
+        end
         row = row + 4
     end
 end
@@ -830,13 +934,16 @@ function M.drawEnemyPanel(foe, mx, my)
     -- threat readout
     love.graphics.setColor(C.floatDmg)
     love.graphics.print(info.threat, x + 12, y + 66)
-    -- mini stat grid
-    local names = { "VIG", "STR", "DEX", "LCK", "SPD", "CHA" }
-    local vals = { st.vigor, st.strength, st.dexterity, st.luck, st.speed, st.charisma }
-    for i = 1, 6 do
-        local c3 = (i - 1) % 3
-        local r2 = math.floor((i - 1) / 3)
-        local sx = x + 12 + c3 * ((w - 24) / 3)
+    -- mini stat grid (enemies: VIG/STR/DEX/SPD only; heroes: all 6)
+    local isEnemy = foe.team == "enemy"
+    local names = isEnemy and { "VIG", "STR", "DEX", "SPD" } or { "VIG", "STR", "DEX", "LCK", "SPD", "CHA" }
+    local vals = isEnemy and { st.vigor, st.strength, st.dexterity, st.speed }
+        or { st.vigor, st.strength, st.dexterity, st.luck, st.speed, st.charisma }
+    for i = 1, #names do
+        local c3 = (i - 1) % (isEnemy and 2 or 3)
+        local r2 = math.floor((i - 1) / (isEnemy and 2 or 3))
+        local cols = isEnemy and 2 or 3
+        local sx = x + 12 + c3 * ((w - 24) / cols)
         love.graphics.setColor(C.muted)
         love.graphics.print(names[i], sx, y + 84 + r2 * 15)
         love.graphics.setColor(C.ink)
@@ -847,27 +954,94 @@ function M.drawEnemyPanel(foe, mx, my)
     love.graphics.printf(info.bio, x + 12, y + 116, w - 24)
 end
 
+-- Level intro banner: big title card fading over ~2.6 s. Set via M.banner();
+-- driven by wall time so it needs no update plumbing.
+function M.banner(title, sub)
+    G.banner = { title = title, sub = sub, t0 = love.timer.getTime(), dur = 2.6 }
+end
+function M.drawBanner()
+    local C = G.C
+    local b = G.banner
+    if not b then return end
+    local t = love.timer.getTime() - b.t0
+    if t >= b.dur then G.banner = nil return end
+    local aIn = math.min(1, t / 0.4)
+    local aOut = math.min(1, (b.dur - t) / 0.6)
+    local a = math.min(aIn, aOut)
+    local cx = G.W / 2
+    local y = G.H * 0.30
+    local bfont = G.fontDisplay or G.fontTitle
+    love.graphics.setFont(bfont)
+    local tw = bfont:getWidth(b.title)
+    love.graphics.setColor(0, 0, 0, 0.55 * a)
+    love.graphics.rectangle("fill", cx - tw / 2 - 26, y - 14, tw + 52, 64, 8, 8)
+    love.graphics.setColor(C.selInk[1], C.selInk[2], C.selInk[3], a)
+    love.graphics.printf(b.title, cx - tw / 2 - 26, y - 6, tw + 52, "center")
+    if b.sub then
+        love.graphics.setFont(G.fontSmall)
+        love.graphics.setColor(C.muted[1], C.muted[2], C.muted[3], a)
+        love.graphics.printf(b.sub, cx - tw / 2 - 26, y + 22, tw + 52, "center")
+    end
+end
+
 function M.drawHUD()
     local C = G.C
-    love.graphics.setFont(G.fontTitle)
-    love.graphics.setColor(C.ink)
-    love.graphics.print("ISOMETRIC GRID LAB", 36, 30)
-    love.graphics.setFont(G.fontSmall)
-    love.graphics.setColor(C.muted)
-    love.graphics.print(G.GRID .. " x " .. G.GRID .. " BLOCK FIELD  /  LOVE2D REMAKE", 36, 64)
-    love.graphics.setColor(C.accent)
-    love.graphics.rectangle("fill", 36, 86, 42, 3)
-
-    love.graphics.setFont(G.fontSmall)
-    love.graphics.setColor(C.muted)
-    love.graphics.print("CLICK select / move / attack   WASD step   TAB cycle   SPACE end turn",
-        36, G.H - 60)
-    love.graphics.print("Q bolt   C stats   RIGHT-DRAG pan   ARROWS pan   R reset",
-        36, G.H - 44)
-    local y = G.H - 84
-    for i, m in ipairs(G.log) do
+    -- title card: paneled, with run status line
+    do
+        local tx, ty, tw, th = 24, 20, 300, 76
+        love.graphics.setColor(C.panel)
+        love.graphics.rectangle("fill", tx, ty, tw, th, 8, 8)
+        love.graphics.setColor(C.panelLn)
+        love.graphics.rectangle("line", tx, ty, tw, th, 8, 8)
+        love.graphics.setFont(G.fontBody)
+        love.graphics.setColor(C.ink)
+        love.graphics.print("ISOMETRIC GRID", tx + 14, ty + 8)
+        love.graphics.setFont(G.fontSmall)
         love.graphics.setColor(C.muted)
-        love.graphics.print(m, 36, y - (i - 1) * 16)
+        local status = "FREE PLAY"
+        if G.gameMode == "run" then
+            status = "LEVEL " .. (G.runLevel or 1)
+            if (G.runLevel or 1) >= 5 then status = status .. " · FINALE"
+            elseif G.runPathChoice then status = status .. " · " .. string.upper(G.runPathChoice) end
+            status = status .. " · ROUND " .. (G.round or 1)
+        end
+        love.graphics.print(G.GRID .. " x " .. G.GRID .. " BLOCK FIELD", tx + 14, ty + 30)
+        love.graphics.setColor(C.accent)
+        love.graphics.print(status, tx + 14, ty + 48)
+    end
+
+    -- combat log: paneled, newest on top, older lines fade
+    do
+        local n = math.min(#G.log, 6)
+        if n > 0 then
+            local lx, lw, lh = 24, 380, 12 + n * 16 + 8
+            local ly = G.H - lh - 52
+            love.graphics.setColor(C.panel)
+            love.graphics.rectangle("fill", lx, ly, lw, lh, 8, 8)
+            love.graphics.setColor(C.panelLn)
+            love.graphics.rectangle("line", lx, ly, lw, lh, 8, 8)
+            love.graphics.setFont(G.fontSmall)
+            for i = 1, n do
+                local a = 1 - (i - 1) * 0.14
+                love.graphics.setColor(C.muted[1], C.muted[2], C.muted[3], a)
+                local msg = G.log[i] or ""
+                if #msg > 52 then msg = msg:sub(1, 51) .. "…" end
+                love.graphics.print(msg, lx + 12, ly + 8 + (i - 1) * 16)
+            end
+        end
+    end
+
+    -- controls hint: single current line on its own pill
+    do
+        love.graphics.setFont(G.fontSmall)
+        local hint = "CLICK select · M/F/Q stance · WASD step · TAB cycle · SPACE end · ESC pause"
+        local hw = G.fontSmall:getWidth(hint) + 24
+        local hx = 24
+        local hy = G.H - 32
+        love.graphics.setColor(C.panel)
+        love.graphics.rectangle("fill", hx, hy, hw, 22, 11, 11)
+        love.graphics.setColor(C.muted)
+        love.graphics.print(hint, hx + 12, hy + 4)
     end
 
     if G.hover and Board.inBounds(G.hover[1], G.hover[2]) then
@@ -888,13 +1062,14 @@ function M.drawHUD()
 
     M.drawTurnBox()
     M.drawTurnBar()
+    M.drawBanner()
 end
 
--- turn indicator + BOLT / END TURN buttons (bottom-right).
--- Sets G.boltBtn / G.nextBtn (screen-space rects) for the input hit-test.
+-- turn indicator + big MOVE / ATK+SPL mode buttons + END TURN (bottom-right).
+-- Sets G.moveBtn / G.atkBtn / G.splBtn / G.nextBtn (screen-space rects) for input.
 function M.drawTurnBox()
     local C = G.C
-    local bw, bh = 216, 102
+    local bw, bh = 216, 176
     local bx, by = G.W - bw - 32, G.H - bh - 32
     local a = G.units[G.activeIdx]
     love.graphics.setColor(C.panel)
@@ -911,38 +1086,57 @@ function M.drawTurnBox()
         who = a.name:upper() .. (a.team == "enemy" and "  [ENEMY]" or "")
         if a.acted then who = who .. "  (done)" end
     end
-    love.graphics.print(who, bx + 14, by + 28)
+    love.graphics.print(who, bx + 14, by + 26)
     local mx, my = love.mouse.getPosition()
-    -- firebolt button (heroes only, grey when unaffordable/spent)
-    local canBolt = a and a.team ~= "enemy" and not a.acted
-        and not a.attacked
+    local mode = G.actionMode or "move"
+    local canAct = a and a.team ~= "enemy" and not a.acted
+    local canBolt = canAct and not a.attacked
         and (a.mana or 0) >= (Units.BOLT_COST or 3)
-    local lb = { x = bx + 12, y = by + 46, w = bw - 24, h = 20 }
-    G.boltBtn = lb
-    local bhot = mx >= lb.x and mx <= lb.x + lb.w and my >= lb.y and my <= lb.y + lb.h
-    if G.castMode then
-        love.graphics.setColor(C.select)
-        love.graphics.rectangle("fill", lb.x, lb.y, lb.w, lb.h, 4, 4)
-        love.graphics.setColor(C.panel)
-    elseif canBolt then
-        love.graphics.setColor(bhot and C.select or C.panelLn)
-        love.graphics.rectangle(bhot and "fill" or "line", lb.x, lb.y, lb.w, lb.h, 4, 4)
-        love.graphics.setColor(bhot and C.panel or C.selInk)
-    else
-        love.graphics.setColor(C.muted)
-        love.graphics.rectangle("line", lb.x, lb.y, lb.w, lb.h, 4, 4)
-        love.graphics.setColor(C.muted)
+    local function btn(r, label, activeCol, active, ok)
+        local hot = mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h
+        if active then
+            love.graphics.setColor(activeCol)
+            love.graphics.rectangle("fill", r.x, r.y, r.w, r.h, 4, 4)
+            love.graphics.setColor(C.panel)
+        elseif ok then
+            love.graphics.setColor(hot and C.select or C.panelLn)
+            love.graphics.rectangle(hot and "fill" or "line", r.x, r.y, r.w, r.h, 4, 4)
+            love.graphics.setColor(hot and C.panel or C.selInk)
+        else
+            love.graphics.setColor(C.muted)
+            love.graphics.rectangle("line", r.x, r.y, r.w, r.h, 4, 4)
+            love.graphics.setColor(C.muted)
+        end
+        love.graphics.printf(label, r.x, r.y + (r.h >= 30 and 9 or 5), r.w, "center")
     end
-    love.graphics.printf("BOLT (" .. (Units.BOLT_COST or 3) .. ")", lb.x, lb.y + 4, lb.w, "center")
+    -- big MOVE button (full width)
+    local mr = { x = bx + 12, y = by + 44, w = bw - 24, h = 34 }
+    G.moveBtn = mr
+    love.graphics.setFont(G.fontBody)
+    btn(mr, "MOVE", {0.30, 0.85, 0.35}, mode == "move", canAct and not a.moved)
+    -- ATK + SPELLS/BLADES side by side (assassins throw blades, free)
+    love.graphics.setFont(G.fontSmall)
+    local hw = (bw - 24 - 8) / 2
+    local ar = { x = bx + 12, y = by + 84, w = hw, h = 26 }
+    local sr = { x = bx + 12 + hw + 8, y = by + 84, w = hw, h = 26 }
+    G.atkBtn = ar
+    G.splBtn = sr
+    G.boltBtn = sr
+    local splLabel = "SPELLS"
+    if a and a.kind == "assassin" then splLabel = "BLADES"
+    elseif a and a.kind == "tank" then splLabel = "TAUNT" end
+    btn(ar, "ATTACK", C.floatDmg, mode == "attack", canAct and not a.attacked)
+    btn(sr, splLabel, C.floatMana, mode == "spells", canBolt or (a and a.kind == "assassin" and canAct and not a.attacked))
+    love.graphics.setColor(C.muted)
+    love.graphics.printf("M / F / Q", bx + 12, by + 112, bw - 24, "center")
     -- end turn button
-    local bb = { x = bx + 12, y = by + 70, w = bw - 24, h = 22 }
+    local bb = { x = bx + 12, y = by + 130, w = bw - 24, h = 26 }
     G.nextBtn = bb
-    local mx, my = love.mouse.getPosition()
     local hot = mx >= bb.x and mx <= bb.x + bb.w and my >= bb.y and my <= bb.y + bb.h
     love.graphics.setColor(hot and C.select or C.panelLn)
     love.graphics.rectangle(hot and "fill" or "line", bb.x, bb.y, bb.w, bb.h, 4, 4)
     love.graphics.setColor(hot and C.panel or C.selInk)
-    love.graphics.printf("END TURN", bb.x, bb.y + 5, bb.w, "center")
+    love.graphics.printf("END TURN", bb.x, bb.y + 6, bb.w, "center")
 end
 
 -- Initiative strip across the top: portrait chips in turn order starting
@@ -1033,6 +1227,10 @@ function M.drawTurnBar()
             end
         elseif u.kind == "knight" then
             require("assets.units.knight").drawChip(cx, y, r, u.color, u.dark, alpha)
+        elseif u.kind == "assassin" then
+            require("assets.units.assassin").drawChip(cx, y, r, u.color, u.dark, alpha)
+        elseif u.kind == "tank" then
+            require("assets.units.tank").drawChip(cx, y, r, u.color, u.dark, alpha)
         else
             -- pawn chip: dark rim, color face, highlight dot
             love.graphics.setColor(col(u.dark))
@@ -1116,7 +1314,10 @@ function M.drawBoard(time)
         end
         -- pawns whose tile-sum == s draw right after their row band
         for _, u in ipairs(G.units) do
-            if u.map == G.map and u.gx + u.gy == s then M.drawPawn(u, time) end
+            if u.map == G.map and u.gx + u.gy == s then
+                M.impactFlash(u)
+                M.drawPawn(u, time)
+            end
         end
     end
     M.drawShopMarkers()
@@ -1150,25 +1351,47 @@ function M.drawBoard(time)
         love.graphics.setColor(1, 1, 1, pf.a * 0.5)
         love.graphics.circle("line", pf.x, pf.y, pf.r)
     end
-    -- floating combat text: big pop-in numbers (recomputed per frame
-    -- so they track the camera). Crits render larger with a wobble.
-    love.graphics.setFont(G.fontTitle)
+    -- floating combat text: Anton damage numerals with outline + tilt.
+    -- styles: hit (red pop), crit/big (larger, wobble), miss (gray, drifts
+    -- sideways), heal/mana (slow rise), poison (small, strong wobble),
+    -- block/callout (slate/white shouts).
+    local dmgFont = G.fontDamage or G.fontTitle
     for _, f in ipairs(G.floats) do
+        local style = f.style or "hit"
         local k = f.t / f.life
         local hgt = (G.heights[f.gy] and G.heights[f.gy][f.gx]) or 0
         local cx, cy = Board.tileToScreen(f.gx, f.gy, hgt * G.BLOCK_H + 18)
-        cy = cy - k * 34
-        if f.big then cx = cx + math.sin(f.t * 45) * 4 * (1 - k) end
+        local rise, size, wob, tilt = 34, 22, 0, f.rot or 0
+        if style == "miss" then
+            rise, size = 20, 15
+            cx = cx + k * 26
+        elseif style == "heal" or style == "mana" then
+            rise, size = 26, 17
+        elseif style == "poison" then
+            rise, size, wob = 24, 14, 1
+        elseif style == "block" then
+            rise, size = 22, 16
+        elseif style == "callout" then
+            rise, size, wob = 30, 20, 0.5
+        elseif f.big then
+            size, wob = 30, 1
+        end
+        cy = cy - k * rise
+        if wob > 0 then cx = cx + math.sin(f.t * 45) * 4 * (1 - k) * wob end
         local pop = 1 + 1.4 * math.max(0, 1 - f.t / 0.22)
-        local s = pop * (f.big and 1.25 or 1)
         local a = math.min(1, (1 - k) * 2)
+        love.graphics.setFont(dmgFont)
         love.graphics.push()
         love.graphics.translate(cx, cy)
-        love.graphics.scale(s, s)
-        love.graphics.setColor(0, 0, 0, 0.75 * a)
-        love.graphics.printf(f.txt, -58, -14, 120, "center")
+        love.graphics.rotate(tilt * (1 - k * 0.5))
+        love.graphics.scale(pop, pop)
+        love.graphics.setColor(0, 0, 0, 0.85 * a)
+        love.graphics.printf(f.txt, -60 + 2, -size / 2, 120, "center")
+        love.graphics.printf(f.txt, -60 - 2, -size / 2, 120, "center")
+        love.graphics.printf(f.txt, -60, -size / 2 + 2, 120, "center")
+        love.graphics.printf(f.txt, -60, -size / 2 - 2, 120, "center")
         love.graphics.setColor(f.col[1], f.col[2], f.col[3], a)
-        love.graphics.printf(f.txt, -60, -16, 120, "center")
+        love.graphics.printf(f.txt, -60, -size / 2, 120, "center")
         love.graphics.pop()
     end
     love.graphics.pop()

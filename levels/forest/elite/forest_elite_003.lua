@@ -31,7 +31,7 @@ return {
     },
 
     player_spawns = {
-        { x = 5, y = 9 }, { x = 6, y = 9 }, { x = 5, y = 10 }, { x = 6, y = 10 },
+        { x = 2, y = 8 }, { x = 3, y = 8 }, { x = 2, y = 9 }, { x = 3, y = 9 },
     },
 
     enemy_spawns = {

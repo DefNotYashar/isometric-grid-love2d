@@ -1,5 +1,5 @@
--- skeleton_group — 3 skeletons
+-- skeleton_group — 2 skeletons + 1 slime
 return {
     id = "skeleton_group",
-    enemies = { "skeleton", "skeleton", "skeleton" },
+    enemies = { "skeleton", "skeleton", "slime" },
 }

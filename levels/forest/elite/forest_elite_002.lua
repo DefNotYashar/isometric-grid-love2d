@@ -9,8 +9,8 @@ return {
         { "water", "mountain", "grass", "grass", "water", "water", "grass", "grass", "mountain", "water" },
         { "water", "grass", "mountain", "grass", "water", "water", "grass", "mountain", "grass", "water" },
         { "water", "grass", "grass", "mountain", "water", "water", "mountain", "grass", "grass", "water" },
-        { "water", "water", "water", "water", "water", "water", "water", "water", "water", "water" },
-        { "water", "water", "water", "water", "water", "water", "water", "water", "water", "water" },
+        { "water", "grass", "grass", "grass", "grass", "grass", "grass", "grass", "grass", "water" },
+        { "water", "grass", "grass", "grass", "grass", "grass", "grass", "grass", "grass", "water" },
         { "water", "grass", "grass", "mountain", "water", "water", "mountain", "grass", "grass", "water" },
         { "water", "grass", "mountain", "grass", "water", "water", "grass", "mountain", "grass", "water" },
         { "water", "mountain", "grass", "grass", "water", "water", "grass", "grass", "mountain", "water" },
@@ -19,19 +19,19 @@ return {
 
     heights = {
         { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-        { 0, 2, 0, 0, 0, 0, 0, 0, 2, 0 },
-        { 0, 0, 2, 0, 0, 0, 0, 2, 0, 0 },
+        { 0, 2, 0, 0, 0, 0, 0, 0, 0, 0 },
+        { 0, 0, 2, 0, 0, 0, 0, 0, 0, 0 },
         { 0, 0, 0, 2, 0, 0, 2, 0, 0, 0 },
         { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
         { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
         { 0, 0, 0, 2, 0, 0, 2, 0, 0, 0 },
         { 0, 0, 2, 0, 0, 0, 0, 2, 0, 0 },
-        { 0, 2, 0, 0, 0, 0, 0, 0, 2, 0 },
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
         { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
     },
 
     player_spawns = {
-        { x = 2, y = 9 }, { x = 3, y = 9 }, { x = 2, y = 10 }, { x = 3, y = 10 },
+        { x = 2, y = 9 }, { x = 3, y = 9 }, { x = 4, y = 9 }, { x = 4, y = 8 },
     },
 
     enemy_spawns = {

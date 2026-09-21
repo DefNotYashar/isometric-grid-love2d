@@ -8,10 +8,10 @@ return {
         { "grass", "grass", "grass", "water", "water", "grass", "grass", "grass", "grass", "grass" },
         { "grass", "water", "water", "water", "water", "water", "water", "grass", "grass", "grass" },
         { "grass", "grass", "grass", "water", "mountain", "mountain", "water", "grass", "grass", "grass" },
-        { "water", "water", "water", "water", "mountain", "mountain", "water", "water", "water", "water" },
-        { "water", "mountain", "mountain", "mountain", "grass", "grass", "mountain", "mountain", "mountain", "water" },
-        { "water", "mountain", "mountain", "mountain", "grass", "grass", "mountain", "mountain", "mountain", "water" },
-        { "water", "water", "water", "water", "mountain", "mountain", "water", "water", "water", "water" },
+        { "grass", "water", "water", "water", "mountain", "mountain", "water", "water", "water", "grass" },
+        { "water", "mountain", "mountain", "mountain", "grass", "grass", "mountain", "mountain", "mountain", "grass" },
+        { "water", "mountain", "mountain", "mountain", "grass", "grass", "mountain", "mountain", "mountain", "grass" },
+        { "grass", "water", "water", "water", "mountain", "mountain", "water", "water", "water", "grass" },
         { "grass", "grass", "grass", "water", "mountain", "mountain", "water", "grass", "grass", "grass" },
         { "grass", "grass", "grass", "water", "water", "water", "water", "grass", "grass", "grass" },
         { "grass", "grass", "grass", "grass", "grass", "grass", "grass", "grass", "grass", "grass" },
@@ -36,7 +36,7 @@ return {
 
     enemy_spawns = {
         { x = 8, y = 2 }, { x = 9, y = 2 }, { x = 8, y = 3 }, { x = 9, y = 3 },
-        { x = 7, y = 2 }, { x = 7, y = 3 },
+        { x = 10, y = 2 }, { x = 10, y = 3 },
     },
 
     tags = { "forest", "elite", "water", "mountain", "asymmetric", "channels" },

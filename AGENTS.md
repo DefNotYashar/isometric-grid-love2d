@@ -33,19 +33,18 @@ size (viewport is re-polled every frame — tiling WMs resize without events).
 
 | Input | Action |
 |---|---|
-| Left click pawn | Select ally (syncs turn-queue position) |
-| Left click tile | Order selected unit to move (BFS path, capped by unit range) |
-| Left click enemy | Default attack (melee, must be orthogonally adjacent) |
-| W A S D | Step selected unit one tile (grid N/S/W/E, not camera) |
-| Tab | Cycle unacted allies in initiative order, visible map only |
+| Left click pawn | Select ally (syncs turn-queue position, resets stance to MOVE) |
+| Left click tile | In MOVE stance: order selected unit to move (BFS path, capped by unit range) |
+| Left click enemy | In ATK stance: melee (must be orthogonally adjacent). In SPL stance: firebolt |
+| W A S D | Step selected unit one tile (MOVE stance only; grid N/S/W/E, not camera) |
+| Tab | Cycle unacted allies in initiative order, visible map only (resets stance to MOVE) |
 | Space / END TURN button | End the active unit's turn |
-| Q / BOLT button | Arm firebolt targeting (3 mana, range 3, click an enemy) |
+| M / F / Q / MOVE+ATK+SPL buttons | Combat stance: MOVE (green wash) / ATTACK (red melee-1 wash) / SPELLS (red bolt-3 wash, 3 mana) |
 | C / STATS arrow | Collapse or expand the portrait stat block |
 | Arrow keys | Pan camera |
-| Right-drag | Pan camera |
-| Mouse wheel | Zoom at cursor (0.45×–2.5×) |
+| Mouse wheel | Zoom disabled (fixed 2.4× framing, auto-fit on map switch) |
 | R | Reset camera |
-| Esc | Back to menu (quit from the main menu) |
+| Esc | Pause menu in-game (back/pop in menus, quit from the main menu) |
 
 ## Coordinate conventions (read before editing)
 
